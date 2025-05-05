@@ -1,0 +1,308 @@
+# Árbol de decisión 
+
+Cargamos librería a utilizar
+
+```{r, message=FALSE, warning=FALSE}
+library(readxl)
+library(dplyr)
+library(car)
+library(caret)
+library(rpart)
+library(corrr)
+library(ggcorrplot)
+library(rpart.plot)
+install.packages("caret")
+install.packages("caret", dependencies = TRUE)
+library(caret)
+```
+##Paso 1: Preparación de datos
+Importamos la base de datos
+
+```{r}
+datos<- read_excel("~/BUAP/8vo/Análisis de datos/Examen 4/bd_students_per.xlsx")
+head(datos)
+class(datos)
+datos <- select(datos,-c(1:2))
+colSums(is.na(datos))
+datos <- na.omit(datos)
+datos <- as.data.frame(datos)
+
+```
+
+Preparamos la base de datos.
+  1. Eliminar valores faltantes
+  2. Convertir variables categóricas a factor
+```{r}
+
+
+datos <- datos %>%
+  mutate(
+    gender = ifelse(toupper(gender) == "MALE", 1, 0),
+    location = case_when(
+      toupper(location) == "URBAN" ~ 1,
+      toupper(location) == "RURAL" ~ 2,
+      toupper(location) == "CITY" ~ 3,
+      TRUE ~ NA_real_
+    ),
+    mother_education = case_when(
+      toupper(mother_education) == "NON_EDUCATED" ~ 1,
+      toupper(mother_education) == "NONE" ~ 2,
+      toupper(mother_education) == "UNDER_SSC" ~ 3,
+      toupper(mother_education) == "SSC" ~ 4,
+      toupper(mother_education) == "HSC" ~ 5,
+      toupper(mother_education) == "DIPLOMA" ~ 6,
+      toupper(mother_education) == "HONS" ~ 7,
+      toupper(mother_education) == "HONORS" ~ 8,
+      toupper(mother_education) == "MASTERS" ~ 9,
+      TRUE ~ NA_real_
+    ),
+    father_education = case_when(
+      toupper(father_education) == "NON_EDUCATED" ~ 1,
+      toupper(father_education) == "NONE" ~ 2,
+      toupper(father_education) == "UNDER_SSC" ~ 3,
+      toupper(father_education) == "SSC" ~ 4,
+      toupper(father_education) == "HSC" ~ 5,
+      toupper(father_education) == "DIPLOMA" ~ 6,
+      toupper(father_education) == "HONS" ~ 7,
+      toupper(father_education) == "HONORS" ~ 8,
+      toupper(father_education) == "MASTERS" ~ 9,
+      TRUE ~ NA_real_
+    ),
+    mother_job = case_when(
+      toupper(mother_job) == "YES" ~ 1,
+      toupper(mother_job) == "NO" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    father_job = case_when(
+      toupper(father_job) == "YES" ~ 1,
+      toupper(father_job) == "NO" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    guardian = case_when(
+      toupper(guardian) == "MOTHER" ~ 1,
+      toupper(guardian) == "FATHER" ~ 2,
+      toupper(guardian) == "OTHER" ~ 3,
+      TRUE ~ NA_real_
+    ),
+    parental_involvement = case_when(
+      toupper(parental_involvement) == "YES" ~ 1,
+      toupper(parental_involvement) == "NO" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    internet_access = case_when(
+      toupper(internet_access) == "YES" ~ 1,
+      toupper(internet_access) == "NO" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    tutoring = case_when(
+      toupper(tutoring) == "YES" ~ 1,
+      toupper(tutoring) == "NO" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    school_type = case_when(
+      toupper(school_type) == "GOVT" ~ 1,
+      toupper(school_type) == "PRIVATE" ~ 2,
+      toupper(school_type) == "SEMI_GOVT" ~ 3,
+      TRUE ~ NA_real_
+    ),
+    extra_curricular_activities = case_when(
+      toupper(extra_curricular_activities) == "YES" ~ 1,
+      toupper(extra_curricular_activities) == "NO" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    stu_group = case_when(
+      toupper(stu_group) == "SCIENCE" ~ 1,
+      toupper(stu_group) == "COMMERCE" ~ 2,
+      toupper(stu_group) == "ARTS" ~ 3,
+      TRUE ~ NA_real_
+    )
+  )
+# Calcular el promedio de las 5 variables
+datos_esc <- scale(datos)
+```
+## Eleccion de variables, nos dimos cuenta que hay pocas correlacionadas además que no hay multicolinealidad
+
+```{r}
+
+matrix_corr <- cor(datos_esc)
+print(matrix_corr)
+ggcorrplot(matrix_corr, 
+           hc.order = TRUE,           # Reordena las variables por clustering jerárquico
+           type = "lower",            # Muestra solo la mitad inferior de la matriz
+           lab = TRUE,               # Muestra los coeficientes de correlación
+           lab_size = 2,              # Ajusta el tamaño de los coeficientes
+           tl.cex = 7,               # Ajusta el tamaño de las etiquetas de las variables
+           tl.srt = 45,              # Rota las etiquetas de las variables 45 grados
+           ggtheme = theme_bw(),     # Tema blanco y negro
+           colors = c("#6D9EC1", "white", "#E46726"),  # Paleta de colores
+           title = "Matriz de Correlación",  # Título
+           legend.title = "Correlación"  # Título de la leyenda
+           )
+
+# 1. Convertir la matriz de correlación a un data frame
+df_correlacion <- as.data.frame(as.table(matrix_corr))
+ 
+# 2. Renombrar las columnas
+colnames(df_correlacion) <- c("Variable1", "Variable2", "Correlacion")
+ 
+# 3. Eliminar las correlaciones de una variable consigo misma
+df_correlacion <- df_correlacion[df_correlacion$Variable1 != df_correlacion$Variable2, ]
+ 
+# 4. Ordenar por valor absoluto de la correlación (de mayor a menor)
+df_correlacion <- df_correlacion[order(-abs(df_correlacion$Correlacion)), ]
+ 
+# 5. Mostrar las primeras filas (las que tienen mayor correlación)
+head(df_correlacion) 
+
+```
+
+```{r}
+
+
+datos_esc <- as.data.frame(datos_esc)
+# Ajustar un modelo de regresión lineal (usando datos_sca sin stu_group)
+modelo_regresion <- lm(stu_group ~ ., data = datos_esc)
+
+# Calcular el factor de inflación de la varianza (VIF)
+vif_values <- vif(modelo_regresion)
+
+# Mostrar los valores de VIF
+print(vif_values)
+
+# Identificar variables con VIF alto (mayor a 5)
+variables_alto_vif <- vif_values[vif_values > 5]
+print(variables_alto_vif)
+
+# Calcular la importancia de las variables
+importancia_variables <- varImp(modelo_regresion)
+
+# Mostrar la importancia de las variables
+print(importancia_variables)
+
+datos_new  <- datos %>%
+  select(internet_access,parental_involvement,studytime,school_type,tutoring,attendance,math,science,social_science,art_culture,english,stu_group)
+
+```
+
+Dividimos la base de datos: Training (80%) and Testing (20%)
+```{r}
+set.seed(123)
+na.omit(datos_esc)
+datos_esc <- as.data.frame(datos_esc)
+indices <- createDataPartition(datos_esc$stu_group, p = 0.8, list = F)
+data_training <- datos[indices,]
+data_testing <- datos[-indices,]
+
+# Verificamos la proporción
+prop.table(table(data_training$stu_group))
+prop.table(table(data_testing$stu_group))
+```
+
+##Paso 3, contrucción del árbol y evaluación del modelo
+Construimos el árbol de decisión
+
+```{r}
+modelo <- rpart(stu_group ~., data_training)
+rpart.plot(modelo)
+```
+
+Evaluamos el modelo con el testing_data
+```{r}
+class(data_testing)
+forecasted <- predict(modelo, data_testing, type = "vector")
+
+data_testing$Forecasted <- forecasted
+View(data_testing)
+
+#Generamos la matriz de confusiones
+confu <- table(data_testing$stu_group, data_testing$Forecasted)
+print(confu)
+length(data_testing$Forecasted)
+length(datos$stu_group)
+# Tasa de éxito del modelo
+exito <- sum(diag(confu)) / nrow(data_testing)
+print(exito) #0.3025552
+error <- 1 - exito
+print(error) # 0.6974448
+
+```
+
+
+#Ajuste del modelo y construcción del árbol
+##Encontramos el CP óptimo con k-folds
+```{r}
+
+# Definir los valores de cp a probar
+grid_cp <- expand.grid(cp = seq(0, 0.1, 0.01))
+
+# Ajustar el modelo con validación cruzada
+modelo_cv <- train(
+  stu_group ~ ., 
+  data = data_training, 
+  method = "rpart",
+  trControl = trainControl(method = "cv", number = 10),  # Validación cruzada de 10 folds
+  tuneGrid = grid_cp
+)
+
+# Mostrar los resultados de la validación cruzada
+print(modelo_cv)
+
+# Obtener el cp óptimo
+cp_optimo <- modelo_cv$bestTune$cp
+print(cp_optimo)
+# Ajustar el modelo final con el cp óptimo
+modelo_final <- rpart(stu_group ~ ., data = data_training, method = "class", 
+                      control = rpart.control(cp = cp_optimo))
+rpart.plot(modelo_final)
+
+```
+
+```{r}
+class(data_testing)
+forecasted_final <- predict(modelo_final, data_testing, type = "vector")
+data_testing$Forecasted <- forecasted_final
+confu_final <- table(data_testing$stu_group, data_testing$Forecasted)
+print(confu_final)
+# Tasa de éxito del modelo
+exito <- sum(diag(confu_final)) / nrow(data_testing)
+print(exito) # 0.97154478 
+error <- 1 - exito
+print(error) # 0.02845528
+```
+
+#Ajuste manual
+```{r}
+# Ajustar los parámetros de complejidad del árbo
+modelo1 <- rpart(stu_group ~., data = data_training, method = "class", control = rpart.control(cp = 0.01))
+
+# Graficar el árbol ajustado
+rpart.plot(modelo1)
+
+# Calcular la importancia de las variables
+importancia <- varImp(modelo1)
+
+# Mostrar la importancia de las variables
+print(importancia)
+```
+
+
+#Paso 5 evaluación del modejolo ajustado
+Evaluamos este segundo modelo
+
+```{r}
+forecasted1 <- predict(modelo1, data_testing, type = "class")
+data_testing$Forecasted1 <- forecasted1
+```
+
+
+```{r}
+#Generamos la matriz de confusiones
+confu1 <- table(data_testing$stu_group, data_testing$Forecasted1)
+print(confu1)
+# Tasa de éxito del modelo
+exito <- sum(diag(confu1)) / nrow(data_testing)
+print(exito) # 0.956446
+error <- 1 - exito
+print(error) #0.04355401
+```
+
