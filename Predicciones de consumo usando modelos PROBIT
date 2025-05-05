@@ -1,0 +1,399 @@
+hooseCRANmirror(graphics = FALSE, ind = 1)  # Establece el primer mirror disponible (puedes cambiar el número)
+install.packages("plm")
+## Installing package into 'C:/Users/adria/AppData/Local/R/win-library/4.3'
+## (as 'lib' is unspecified)
+## package 'plm' successfully unpacked and MD5 sums checked
+## 
+## The downloaded binary packages are in
+##  C:\Users\adria\AppData\Local\Temp\Rtmp6BQz0C\downloaded_packages
+install.packages("vars")
+## Installing package into 'C:/Users/adria/AppData/Local/R/win-library/4.3'
+## (as 'lib' is unspecified)
+## package 'vars' successfully unpacked and MD5 sums checked
+## 
+## The downloaded binary packages are in
+##  C:\Users\adria\AppData\Local\Temp\Rtmp6BQz0C\downloaded_packages
+install.packages("systemfit")
+## Installing package into 'C:/Users/adria/AppData/Local/R/win-library/4.3'
+## (as 'lib' is unspecified)
+## package 'systemfit' successfully unpacked and MD5 sums checked
+## 
+## The downloaded binary packages are in
+##  C:\Users\adria\AppData\Local\Temp\Rtmp6BQz0C\downloaded_packages
+install.packages("xtable")
+## Installing package into 'C:/Users/adria/AppData/Local/R/win-library/4.3'
+## (as 'lib' is unspecified)
+## package 'xtable' successfully unpacked and MD5 sums checked
+## 
+## The downloaded binary packages are in
+##  C:\Users\adria\AppData\Local\Temp\Rtmp6BQz0C\downloaded_packages
+library(tseries)
+## Warning: package 'tseries' was built under R version 4.3.3
+## Registered S3 method overwritten by 'quantmod':
+##   method            from
+##   as.zoo.data.frame zoo
+library(plm)
+## Warning: package 'plm' was built under R version 4.3.3
+library(car)
+## Warning: package 'car' was built under R version 4.3.3
+## Loading required package: carData
+## Warning: package 'carData' was built under R version 4.3.3
+library(sandwich)
+## Warning: package 'sandwich' was built under R version 4.3.3
+library(dynlm)
+## Warning: package 'dynlm' was built under R version 4.3.3
+## Loading required package: zoo
+## Warning: package 'zoo' was built under R version 4.3.3
+## 
+## Attaching package: 'zoo'
+## The following objects are masked from 'package:base':
+## 
+##     as.Date, as.Date.numeric
+library(vars)
+## Warning: package 'vars' was built under R version 4.3.3
+## Loading required package: MASS
+## Loading required package: strucchange
+## Warning: package 'strucchange' was built under R version 4.3.3
+## Loading required package: urca
+## Warning: package 'urca' was built under R version 4.3.3
+## Loading required package: lmtest
+## Warning: package 'lmtest' was built under R version 4.3.3
+library(broom)
+## Warning: package 'broom' was built under R version 4.3.3
+library(lmtest)
+library(nlWaldTest)
+library(systemfit)
+## Warning: package 'systemfit' was built under R version 4.3.3
+## Loading required package: Matrix
+## 
+## Please cite the 'systemfit' package as:
+## Arne Henningsen and Jeff D. Hamann (2007). systemfit: A Package for Estimating Systems of Simultaneous Equations in R. Journal of Statistical Software 23(4), 1-40. http://www.jstatsoft.org/v23/i04/.
+## 
+## If you have questions, suggestions, or comments regarding the 'systemfit' package, please use a forum or 'tracker' at systemfit's R-Forge site:
+## https://r-forge.r-project.org/projects/systemfit/
+library(AER)
+## Warning: package 'AER' was built under R version 4.3.3
+## Loading required package: survival
+library(xtable)
+## Warning: package 'xtable' was built under R version 4.3.3
+Modelos Binarios
+Modelo lineal probabilistico
+La elección del transporte
+la base de datos _ transport_ y contiene N=21
+ observaciones, vamos a calcular la probabilidad que los individuos de la muestra elijan el auto vs el bus . Las variables son auto=1
+ y bus=0
+
+library(readxl)
+## Warning: package 'readxl' was built under R version 4.3.3
+transport<- read_excel("C:/Users/adria/Documents/BUAP/9no/Econometría II/Bases de datos/transport.xlsx")
+attach(transport)
+names(transport)
+## [1] "autotime" "bustime"  "dtime"    "auto"
+#Modelo general 
+mlauto<- lm(auto~dtime, data =transport)
+summary(mlauto)
+## 
+## Call:
+## lm(formula = auto ~ dtime, data = transport)
+## 
+## Residuals:
+##      Min       1Q   Median       3Q      Max 
+## -0.65635 -0.14379  0.02776  0.15292  0.82457 
+## 
+## Coefficients:
+##             Estimate Std. Error t value Pr(>|t|)    
+## (Intercept)  0.48480    0.07145   6.785 1.76e-06 ***
+## dtime        0.07031    0.01286   5.467 2.83e-05 ***
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+## 
+## Residual standard error: 0.3273 on 19 degrees of freedom
+## Multiple R-squared:  0.6113, Adjusted R-squared:  0.5909 
+## F-statistic: 29.88 on 1 and 19 DF,  p-value: 2.834e-05
+Un 48.4% de las personas prefieren utilizar el automóvil. Por cada aumento de 10 minutos en el tiempo de traslado, la probabilidad de elegir el auto frente al autobús se incrementa en un 7% por cada unidad de diferencia entre ambos tiempos. No obstante, los datos presentan heterocedasticidad, por lo que aplicaremos la prueba HCE. Dado que la variable dependiente es binaria, es más adecuado emplear modelos no lineales como el probit o el logit, ya que están diseñados para variables binarias y evitan que las probabilidades estimadas queden fuera del rango entre 0 y 1.
+
+library(car)
+library(lmtest)
+cov1<-hccm(mlauto, type = "hc1") #biblioteca car
+mlaHCE<-coeftest(mlauto, vcov.=cov1) #biblioteca lmtest
+mlaHCE #estimaciones con errores consistentes a heterocedasticidad (HCE)
+## 
+## t test of coefficients:
+## 
+##              Estimate Std. Error t value  Pr(>|t|)    
+## (Intercept) 0.4847951  0.0712037  6.8086 1.684e-06 ***
+## dtime       0.0703099  0.0085076  8.2643 1.031e-07 ***
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+El modelo estima un intercepto de aproximadamente 0.485, lo que indica que, cuando la variable dtime es cero, la probabilidad base de elegir el auto ya es considerable. Por otro lado, el coeficiente de dtime es de 0.0704, lo que sugiere que por cada unidad adicional de diferencia en el tiempo de traslado entre el autobús y el auto, la probabilidad de elegir el auto incrementa en alrededor del 7%. Ambos coeficientes son estadísticamente significativos con valores p muy bajos (menores a 0.001), lo que respalda con solidez la relación positiva entre el tiempo adicional y la preferencia por el automóvil.
+
+pe<-fitted.values(mlauto)
+head(pe)
+##         1         2         3         4         5         6 
+## 0.1437920 0.6563513 1.0669612 0.3118327 0.2626157 1.1246153
+tail(pe)
+##          16          17          18          19          20          21 
+##  0.71259920  0.05027979  0.72384879  0.68095974 -0.02776422  0.83564155
+Además de la heterocedasticidad el problema del MPL es que las probabilidades exceden el intervalo [0,1]. Una solución es redondear a su límite más cercano. Pero el modelo no es el más eficiente, Los residuos que presenta indican la diferencia entre los valores observados y los valores predichos por el modelo. Analizando estos residuos puede proporcionar información sobre la bondad de ajuste del modelo.
+
+# Sesión 16
+
+El modelo Probit
+El modelo probit es un modelo de regresión no lineal utilizado cuando la variable dependiente es binaria (es decir, toma solo dos valores, generalmente 0 y 1). Se utiliza para modelar la probabilidad de que ocurra un evento (Y=1) en función de una o más variables independientes (X). El modelo Probit vamos a trabajar un modelo probit para el caso de la elección entre auto y bus
+
+library(stats)
+auto.probit <- glm(auto~dtime, family =binomial (link = "probit"),data = transport)
+auto.probit
+## 
+## Call:  glm(formula = auto ~ dtime, family = binomial(link = "probit"), 
+##     data = transport)
+## 
+## Coefficients:
+## (Intercept)        dtime  
+##    -0.06443      0.29999  
+## 
+## Degrees of Freedom: 20 Total (i.e. Null);  19 Residual
+## Null Deviance:       29.06 
+## Residual Deviance: 12.33     AIC: 16.33
+#kable(tidy(auto.probit),digits = 3,align = "c", caption="Modelo probit  para el transporte ")
+Efectos marginales del probit Vamos a analizar cómo varía la probabilidad de elegir el auto cuando el tiempo de traslado se incrementa en 20 minutos. Según el modelo, este cambio en el tiempo debería traducirse en un aumento de aproximadamente 10 puntos porcentuales en la probabilidad de optar por el automóvil, considerando los coeficientes estimados beta 1 y beta 2
+
+xdtime<- data.frame(dtime=2)
+plinear<- predict(auto.probit, xdtime, data = transport, type ="link") # efecto marginal
+DpDdtime<- coef(auto.probit)[[2]]*dnorm(plinear)
+DpDdtime
+##         1 
+## 0.1036899
+#Si se quisiera hacer manuel tendríamos que
+
+Si incrementamos el tiempo de traslado en 20 minutos, la probabilidad de que una persona elija el auto como medio de transporte aumenta en aproximadamente un 10.37%. Para un aumento de 10 minutos, esta probabilidad sube alrededor de un 11%. Y si el incremento es de 30 minutos, la probabilidad de elegir el auto crece en un 8.4%.
+
+Esto demuestra que el efecto marginal del tiempo no es constante y varía dependiendo del punto en el que se evalúe el cambio.
+
+xdtime<- data.frame(dtime=2)
+Probdir <- predict(auto.probit,xdtime, data= transport, type = "response") #Probabilidad directa
+Probdir
+##         1 
+## 0.7038634
+Cuando la diferencia de tiempo entre usar el auto o el autobús es de 20 minutos, la probabilidad de que una persona prefiera el auto es del 70.38%. Si esa diferencia es de solo 10 minutos, la probabilidad disminuye al 59%. En cambio, si la diferencia se amplía a 30 minutos, la probabilidad de elegir el auto sube hasta el 79%.
+
+xdtime<- data.frame(dtime=1)
+Probdir1 <- predict(auto.probit,xdtime, data= transport, type = "response") #Probabilidad directa
+Probdir1
+##         1 
+## 0.5931111
+xdtime<- data.frame(dtime=3)
+Probdir3 <- predict(auto.probit,xdtime, data= transport, type = "response") #Probabilidad directa
+Probdir3
+##         1 
+## 0.7982915
+xdtime<- data.frame(dtime=0)
+Probdir0 <- predict(auto.probit,xdtime, data= transport, type = "response") #Probabilidad directa
+Probdir0
+##         1 
+## 0.4743122
+Cuando no existe ninguna diferencia en el tiempo de traslado entre el auto y el autobús, la probabilidad de que las personas elijan el auto es de 47.4%. Dado que esta probabilidad es inferior a 0.5, se puede concluir que, en igualdad de condiciones temporales, los individuos de esta muestra tienden a preferir el uso del autobús.
+
+# Calculemos AME
+
+avgPredLinear<-predict(auto.probit, type ="link") #efecto marginal
+avgPred <- mean (dnorm(avgPredLinear))
+AME <- avgPred*coef(auto.probit)[[2]]
+AME
+## [1] 0.04840695
+En promedio, cada incremento de 10 minutos en la diferencia de tiempo de traslado entre el autobús y el automóvil genera un aumento del 4.84% en la probabilidad de que las personas opten por usar el auto.
+
+Calculemos MEM efecto marginal en la Media
+Se usa la media y mesdia de las variables independientes del efceto amrginal se tarbaja con MEM
+
+DTIME¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯=0.1223
+
+mdtime=mean(dtime)
+mdtime
+## [1] -0.122381
+xdtime<-data.frame(dtime=mean(dtime))
+plinear<-predict(auto.probit,xdtime,data=transport,type = "link") 
+
+DpDdtime <- coef(auto.probit)[[2]]*dnorm(plinear)
+DpDdtime
+##         1 
+## 0.1190679
+Dado que el valor promedio de dtime es -0.1223 (calculado como tiempo en bus menos tiempo en auto), esto sugiere que, en promedio, el viaje en auto toma más tiempo que en autobús. En este contexto, si la diferencia entre los tiempos se incrementa en 10 minutos a favor del auto, la probabilidad de que las personas elijan el automóvil aumentaría en un 11.9%, de acuerdo con el efecto marginal estimado.
+
+summary(dtime)
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+## -9.0700 -4.8500 -0.7000 -0.1224  4.9900  9.1000
+# Sesión 17
+
+library(MASS)
+#Crear una base datos simulada
+set.seed(123)
+
+data<- data.frame(
+  seguro= rbinom(100,1,0.5), # variable dependiente binaria (compra seguro)
+  edad=rnorm (100, mean =40 , sd= 10), #Edad como variable explicativa 
+  ingresos= rnorm(100,mean=50000,sd= 10000)) #ingresos como la variable explicativa)
+  #estimar el modelos probit
+modelo_probit <- glm(seguro ~ edad + ingresos,data=data,family=binomial(link="probit"))
+
+#resumen del modelo
+summary(modelo_probit)
+## 
+## Call:
+## glm(formula = seguro ~ edad + ingresos, family = binomial(link = "probit"), 
+##     data = data)
+## 
+## Coefficients:
+##               Estimate Std. Error z value Pr(>|z|)  
+## (Intercept)  1.035e+00  9.113e-01   1.136   0.2560  
+## edad        -2.260e-02  1.345e-02  -1.681   0.0928 .
+## ingresos    -4.395e-06  1.364e-05  -0.322   0.7472  
+## ---
+## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+## 
+## (Dispersion parameter for binomial family taken to be 1)
+## 
+##     Null deviance: 138.27  on 99  degrees of freedom
+## Residual deviance: 135.35  on 97  degrees of freedom
+## AIC: 141.35
+## 
+## Number of Fisher Scoring iterations: 4
+Se estimó un modelo probit para analizar la probabilidad de que una persona adquiera un seguro, en función de su edad y nivel de ingresos. Los resultados indican que ninguno de los coeficientes es estadísticamente significativo al 5%, aunque la variable edad se aproxima al umbral del 10% (valor p ≈ 0.093). Esto sugiere que podría existir una relación débil entre la edad y la probabilidad de contratar un seguro, mientras que los ingresos no parecen tener un efecto relevante (p ≈ 0.747).
+
+La desviación residual del modelo (135.35) es solo ligeramente inferior a la desviación nula (138.27), lo que indica que el modelo no mejora sustancialmente la predicción respecto a un modelo sin predictores.
+
+plot (data$edad, data$probabilidad,
+      main="Probabilidades predichas vs Edad",
+      xlab="Edad",
+      ylab="Probabilidades Predicha",
+      pch=16,col="blue")
+
+
+#Ajustar una línea  para ilustrar la tendencia
+lines(sort(data$edad),
+      predict(modelo_probit,newdata = data[order(data$edad),],type = "response"),)
+ La dispersión observada en los puntos del gráfico sugiere que no existe una relación clara o fuerte entre la edad y la probabilidad de adquirir un seguro. Las probabilidades estimadas fluctúan aproximadamente entre 20% y 60%, lo cual es consistente con las restricciones del modelo probit, que asegura que los valores predichos se mantengan dentro del rango entre 0 y 1. En este sentido, aunque los resultados son coherentes con el modelo, la variabilidad indica una débil capacidad explicativa de la edad sobre la decisión de compra.
+
+library(readxl)
+coke <- read_excel("C:/Users/adria/Documents/BUAP/9no/Econometría II/Bases de datos/coke.xlsx")
+attach(coke)
+## The following object is masked _by_ .GlobalEnv:
+## 
+##     coke
+head(coke)
+## # A tibble: 6 × 6
+##    coke pr_pepsi pr_coke disp_pepsi disp_coke pratio
+##   <dbl>    <dbl>   <dbl>      <dbl>     <dbl>  <dbl>
+## 1     1     1.79    1.79          0         0  1    
+## 2     1     1.79    0.89          0         1  0.497
+## 3     1     1.41    0.89          0         0  0.631
+## 4     1     1.79    1.33          0         0  0.743
+## 5     1     1.79    1.79          0         0  1    
+## 6     1     0.99    1.79          1         0  1.81
+library(knitr)
+## Warning: package 'knitr' was built under R version 4.3.3
+library(broom)
+coke.logit<- glm (coke~pratio+disp_coke+disp_pepsi,family = binomial(link = "logit"), data =coke )
+kable(tidy(coke.logit),digits=4,align = "c",caption = "Estimación COKE por medio de Logit")
+Estimación COKE por medio de Logit
+term	estimate	std.error	statistic	p.value
+(Intercept)	1.9230	0.3258	5.9020	0.0000
+pratio	-1.9957	0.3146	-6.3444	0.0000
+disp_coke	0.3516	0.1585	2.2178	0.0266
+disp_pepsi	-0.7310	0.1678	-4.3555	0.0000
+Se estimó un modelo logit para predecir la elección de Coca-Cola en función del precio relativo y la disponibilidad de productos. Los resultados indican que:
+
+Un aumento en el precio relativo disminuye significativamente la probabilidad de elegir Coca-Cola (pratio tiene un coeficiente negativo de -1.9957 con p < 0.001).
+
+Una mayor disponibilidad de Coca-Cola tiene un efecto positivo y significativo sobre su elección (coeficiente = 0.3516, p ≈ 0.0266).
+
+En contraste, cuando hay mayor disponibilidad de Pepsi, la probabilidad de elegir Coca-Cola disminuye (coeficiente = -0.7310, p < 0.001).
+
+En conjunto, estos resultados son coherentes con la lógica de sustitución entre productos y muestran una influencia estadísticamente significativa de los factores evaluados.
+
+#MODELO LINEAL
+coke.LPM <-lm(coke~pratio+disp_coke+disp_pepsi,data=coke)
+#MODELO PROBIT
+coke.probit <-glm(coke~pratio+disp_coke+disp_pepsi,family = binomial(link="probit"),data = coke)
+#compararción de los 3 modelos
+install.packages("stargazer")
+## Installing package into 'C:/Users/adria/AppData/Local/R/win-library/4.3'
+## (as 'lib' is unspecified)
+## package 'stargazer' successfully unpacked and MD5 sums checked
+## 
+## The downloaded binary packages are in
+##  C:\Users\adria\AppData\Local\Temp\Rtmp6BQz0C\downloaded_packages
+library(stargazer)
+## 
+## Please cite as:
+##  Hlavac, Marek (2022). stargazer: Well-Formatted Regression and Summary Statistics Tables.
+##  R package version 5.2.3. https://CRAN.R-project.org/package=stargazer
+stargazer(coke.LPM, coke.probit,coke.logit,header=FALSE, title ="Comparación de los modelos binarios",type= "text", keep.stat="n",digits=4,single.row=FALSE, intercept.bottom=FALSE, model.names=FALSE,column.labels=c("LPM","probit","logit"))
+## 
+## Comparación de los modelos binarios
+## =============================================
+##                    Dependent variable:       
+##              --------------------------------
+##                            coke              
+##                 LPM       probit     logit   
+##                 (1)        (2)        (3)    
+## ---------------------------------------------
+## Constant     0.8902***  1.1080***  1.9230*** 
+##               (0.0655)   (0.1925)   (0.3258) 
+##                                              
+## pratio       -0.4009*** -1.1459*** -1.9957***
+##               (0.0613)   (0.1839)   (0.3146) 
+##                                              
+## disp_coke     0.0772**   0.2172**   0.3516** 
+##               (0.0344)   (0.0962)   (0.1585) 
+##                                              
+## disp_pepsi   -0.1657*** -0.4473*** -0.7310***
+##               (0.0356)   (0.1010)   (0.1678) 
+##                                              
+## ---------------------------------------------
+## Observations   1,140      1,140      1,140   
+## =============================================
+## Note:             *p<0.1; **p<0.05; ***p<0.01
+El intercepto resulta ser positivo y estadísticamente significativo en los tres modelos estimados (LPM, probit y logit). Aunque su magnitud difiere entre ellos, esto es esperable debido a las distintas escalas que manejan los modelos lineales y no lineales. Si interpretamos de manera práctica los resultados de probit y logit, podemos afirmar que, cuando los precios son iguales y hay disponibilidad de Coca-Cola pero no de Pepsi, la probabilidad estimada de elegir Coca-Cola se aproxima al 57%. Esta conclusión se deriva de redondear las probabilidades estimadas bajo ambos enfoques.
+
+Vamos a calcular el efecto marginal con los mismo datos cuando PRATIO =1 DISP_PEPSI =0 para el caso de LOGIT
+
+calprob<-data.frame(pratio=1,disp_coke=1,disp_pepsi =0)
+pdic<-predict(coke.logit,calprob,data=coke,type="response")
+pdic
+##         1 
+## 0.5692593
+Bajo el supuesto de que el precio relativo de Coca-Cola es 1, está disponible en los estantes y Pepsi no lo está, el modelo logit estima que la probabilidad de que un consumidor elija Coca-Cola es del 56.93%.
+
+emdic <- predict(coke.logit,calprob,data=coke, type = "link")
+emdic
+##         1 
+## 0.2788297
+El valor del índice lineal (log-odds) bajo el modelo logit para el caso en que Coca-Cola está disponible, Pepsi no, y el precio relativo es 1, es de 0.2788. Este valor representa la magnitud previa a aplicar la función logística, y al transformarlo se obtiene una probabilidad del 56.93% de que se elija Coca-Cola.
+
+Tarea calcular la lectura del efecto marginal del probit y del logit
+
+install.packages("margins")
+## Installing package into 'C:/Users/adria/AppData/Local/R/win-library/4.3'
+## (as 'lib' is unspecified)
+## package 'margins' successfully unpacked and MD5 sums checked
+## 
+## The downloaded binary packages are in
+##  C:\Users\adria\AppData\Local\Temp\Rtmp6BQz0C\downloaded_packages
+library(margins)
+## Warning: package 'margins' was built under R version 4.3.3
+# Calcular efectos marginales para el modelo probit
+marginal_probit <- margins(coke.probit)
+summary(marginal_probit)
+##      factor     AME     SE       z      p   lower   upper
+##   disp_coke  0.0776 0.0342  2.2720 0.0231  0.0107  0.1446
+##  disp_pepsi -0.1599 0.0352 -4.5462 0.0000 -0.2289 -0.0910
+##      pratio -0.4097 0.0625 -6.5559 0.0000 -0.5322 -0.2872
+# Calcular efectos marginales para el modelo logit
+marginal_logit <- margins(coke.logit)
+summary(marginal_logit)
+##      factor     AME     SE       z      p   lower   upper
+##   disp_coke  0.0763 0.0342  2.2350 0.0254  0.0094  0.1433
+##  disp_pepsi -0.1587 0.0353 -4.4980 0.0000 -0.2278 -0.0895
+##      pratio -0.4333 0.0639 -6.7761 0.0000 -0.5586 -0.3079
+El efecto marginal promedio indica que la disponibilidad de Coca-Cola incrementa, en promedio, la probabilidad de que sea elegida en un 7.63%. En contraste, cuando Pepsi está disponible, la probabilidad de elegir Coca-Cola disminuye en un 15.87%. Esto confirma que tanto la disponibilidad de Pepsi como un aumento en el precio relativo tienen efectos negativos y estadísticamente significativos sobre la elección de Coca-Cola.
