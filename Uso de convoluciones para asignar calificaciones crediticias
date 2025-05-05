@@ -1,0 +1,259 @@
+import pandas as pd
+from scipy.special import comb
+import numpy as np
+from scipy.stats import binom, poisson
+data = {
+    'Grade': ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC', 'CC', 'C'],
+    'No. of Customers': [34, 56, 119, 257, 191, 102, 50, 34, 12],
+    'No. of Defaults': [1, 1, 3, 2, 2, 6, 3, 1, 2]
+}
+
+df = pd.DataFrame(data)
+total_defaults = df['No. of Defaults'].sum()
+
+df['Bayesian Estimates'] = df['No. of Defaults'] / total_defaults
+
+print(df)
+df_copy = df.copy()
+#dividimos cada no.of customers sobre si mismos y No. of defaults sobre no.costumers
+df_copy['No. of Defaults'] = df_copy['No. of Defaults'] / df_copy['No. of Customers']
+df_copy['No. of Customers'] = df_copy['No. of Customers'] / df_copy['No. of Customers']
+df_copy['Bayesian Estimates'] = df_copy['No. of Defaults'] / df_copy['No. of Defaults'].sum()
+print(df_copy)
+all_probabilities =list()
+n=21
+for grade_index in range(len(df)):
+    p = df['Bayesian Estimates'][grade_index]  # Probabilidad para el grado actual
+    probabilities =[]
+    for k in range(n + 1):
+        prob = comb(n, k) * (p ** k) * ((1 - p) ** (n - k))
+        probabilities.append(prob)
+    all_probabilities.append(probabilities)
+
+# Crear un DataFrame para las probabilidades (transpuesto)
+df_prob = pd.DataFrame(all_probabilities, index=df['Grade']).T
+df_prob.index.name = 'k'
+df_prob.columns.name = 'Grade'
+print("Probabilidades Binomiales:")
+print(df_prob)
+#Calculamos lambda dividiendo el numero de defaults entre el numero total de clientes en cada grado
+df['Lambda'] = df['No. of Defaults'] / df['No. of Customers']
+print(df)
+poisson_probabilities =list()
+
+
+for n in range(21):
+    probs_for_n =[]
+    for grade_lambda in df['Lambda']:
+        prob = poisson.pmf(n, grade_lambda)
+        probs_for_n.append(prob)
+    poisson_probabilities.append(probs_for_n)
+
+# Crear un DataFrame para las probabilidades de Poisson
+df_prob_poisson = pd.DataFrame(poisson_probabilities, columns=df['Grade'])
+df_prob_poisson.insert(0, 'n', range(21))
+
+# Mostrar el DataFrame de probabilidades de Poisson (primeras 5 filas)
+print("\nProbabilidades de Poisson:")
+print(df_prob_poisson)
+def convolucion_binomial_poisson(n, p, lambda_, x_max=10, iteraciones=7):
+    """
+    Genera una matriz de convolución combinando la distribución Binomial y Poisson.
+
+    Parámetros:
+    - n: Número de ensayos de la Binomial
+    - p: Probabilidad de éxito en la Binomial
+    - lambda_: Parámetro lambda de la Poisson
+    - x_max: Número máximo de reclamos (filas de la matriz)
+    - iteraciones: Número de convoluciones a aplicar (columnas f1(x) a f7(x))
+
+    Retorna:
+    - DataFrame con la matriz de convolución
+    """
+    # Inicializar DataFrame
+    df = pd.DataFrame(index=np.arange(x_max+1))
+    df["f(x)"] = 0.0
+    df.loc[0, "f(x)"] = 1.0  # Inicialización de f(x)
+
+    # Primera convolución: Binomial + Poisson
+    f1 = np.zeros(x_max + 1)
+    for x in range(x_max + 1):
+        f1[x] = sum(binom.pmf(k, n, p) * poisson.pmf(x - k, lambda_) for k in range(x + 1))
+    df["f1(x)"] = f1
+
+    # Iteraciones siguientes: f_n(x) + Poisson
+    for i in range(2, iteraciones + 1):
+        f_next = np.zeros(x_max + 1)
+        for x in range(x_max + 1):
+            f_next[x] = sum(df[f"f{i-1}(x)"][k] * poisson.pmf(x - k, lambda_) for k in range(x + 1))
+        df[f"f{i}(x)"] = f_next
+
+    return df
+df_convolucion = convolucion_binomial_poisson(n=10, p=0.2, lambda_=3, x_max=10, iteraciones=7)
+print(df_convolucion)
+df_1 = pd.DataFrame({
+    "Grade": ["AAA", "AA", "A", "BBB", "BB", "B", "CCC", "CC", "C"],
+    "No. of Customers": [34, 56, 119, 514, 382, 102, 100, 272, 48],
+    "No. of Defaults": [1, 1, 3, 4, 4, 6, 6, 8, 8]
+})
+
+
+total_defaults_1 = df_1["No. of Defaults"].sum()
+df_1["Bayesian Estimates"] = df_1["No. of Defaults"] / total_defaults_1
+df_1["Lambda"] = df_1["No. of Defaults"] / df_1["No. of Customers"]
+grade_params = {
+    row["Grade"]: {
+        "p": row["Bayesian Estimates"],
+        "lambda": row["Lambda"]
+    } for _, row in df_1.iterrows()
+}
+
+
+print(grade_params)
+df_copy['Lambda'] = df_1['Lambda']
+df_copy
+#necesito Bayesian estimates extrictamente creciente creciente
+#por lo que si i es menor que i-1 entonces hay que duplicar No.customers y No. of defaults
+for i in range(1, len(df_copy)):
+    if df_copy.loc[i, 'Bayesian Estimates'] < df_copy.loc[i - 1, 'Bayesian Estimates']:
+        df_copy.loc[i, 'No. of Customers'] *= 2
+        df_copy.loc[i, 'No. of Defaults'] *= 2
+    df_copy['Bayesian Estimates'] = df_copy['No. of Defaults'] / df_copy['No. of Defaults'].sum()
+print(df_copy)
+
+df_copy_normal = df_copy.copy()
+
+#multiplicar df_copy['No. cost'] y df_copy['No. defa'] por 10 y redondear
+df_copy['No. of Customers'] = df_copy['No. of Customers'] * 20
+df_copy['No. of Defaults'] = df_copy['No. of Defaults'] * 20
+print(df_copy)
+
+df_1 = df_copy.copy()
+
+grade_params = {
+    row["Grade"]: {
+        "p": row["Bayesian Estimates"],
+        "lambda": row["Lambda"]
+    } for _, row in df_1.iterrows()
+}
+
+
+print(grade_params)
+
+# Parámetros para la convolución
+n = round(df_1["No. of Defaults"].sum())
+x_values = np.arange(0, 11)
+num_convoluciones = 5  # Número de iteraciones de convolución
+
+def convolucion_binomial_poisson(grade):
+    """
+    Calcula la convolución de la distribución Binomial y Poisson iterativamente.
+    """
+    p = grade_params[grade]["p"]
+    lambda_ = grade_params[grade]["lambda"]
+
+    # Primera distribución: Binomial * Poisson
+    binomial = binom.pmf(x_values, n, p)
+    poisson_ = poisson.pmf(x_values, lambda_)# * n)
+    f_values = np.convolve(binomial, poisson_, mode='full')[:len(x_values)]
+
+    # Crear DataFrame para almacenar resultados
+    df_convolucion = pd.DataFrame({
+        "x": x_values,
+        "f1(x)": f_values
+    })
+
+    # Iterar convolución con Poisson hasta f elegir(x)
+    for i in range(2, num_convoluciones + 1):
+        f_values = np.convolve(f_values, poisson_, mode='full')[:len(x_values)]
+        df_convolucion[f"f{i}(x)"] = f_values
+
+    return df_convolucion
+
+# Generar DataFrames para cada grado automáticamente
+dataframes = {grado: convolucion_binomial_poisson(grado) for grado in grade_params}
+
+
+for grado, df in dataframes.items():
+    print(f"--- Tabla para {grado} ---")
+    display(df)
+
+def mostrar_y_extraer_fila(fila):
+
+    valores_extraidos = {}
+
+    for grado, df in dataframes.items():
+
+        # Extraer el valor de la última columna en la fila dada
+        ultima_columna = df.columns[-1]
+        if fila in df.index:
+            valores_extraidos[grado] = df.loc[fila, ultima_columna]
+        else:
+            valores_extraidos[grado] = None
+
+    print("\n--- Valores extraídos de la última columna ---")
+    for grado, valor in valores_extraidos.items():
+        print(f"{grado}: {valor}")
+
+    return valores_extraidos
+
+a = mostrar_y_extraer_fila(8)
+a
+
+import matplotlib.pyplot as plt
+
+# Extract keys (x-axis) and values (y-axis) from the dictionary
+x_values = list(a.keys())
+y_values = list(a.values())
+
+# Create the plot
+plt.plot(x_values, y_values)
+
+# Customize the plot (optional)
+plt.xlabel("Grade")
+plt.ylabel("Probability")
+plt.title("Probability vs. Grade")
+
+# Display the plot
+plt.show()
+
+#como se veria una grafica de regresion exp con los valores de x_values y y_values
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+# Supongamos que tienes tus datos x e y en listas o arrays de NumPy
+x_data = np.array([1, 2, 3, 4, 5,6,7,8,9])
+y_data = y_values # Ejemplo de datos con tendencia exponencial
+
+# 1. Definir la función exponencial que queremos ajustar
+def exponential_function(x, a, b):
+    return a * np.exp(b * x)
+
+# 2. Ajustar la curva exponencial a los datos
+# curve_fit devuelve dos cosas:
+#    - popt: Un array con los parámetros óptimos (a y b en este caso)
+#    - pcov: La matriz de covarianza de los parámetros estimados
+# Increased maxfev to allow more iterations
+popt, pcov = curve_fit(exponential_function, x_data, y_data, p0=[1, 1], maxfev=10000) # p0 es una estimación inicial de los parámetros
+
+# 3. Obtener los parámetros ajustados
+a_optimo, b_optimo = popt
+
+# 4. Generar la curva de regresión exponencial utilizando los parámetros óptimos
+y_fit = exponential_function(x_data, a_optimo, b_optimo)
+
+# 5. Visualizar los resultados
+plt.figure(figsize=(10, 6))
+plt.scatter(x_data, y_data, label='Datos Originales')
+plt.plot(x_data, y_fit, color='red', label=f'Regresión Exponencial: y = {a_optimo:.2f} * exp({b_optimo:.2f} * x)')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('Regresión Exponencial')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# (Opcional) Imprimir los parámetros ajustados
+print(f"Parámetro a óptimo: {a_optimo:.2f}")
+print(f"Parámetro b óptimo: {b_optimo:.2f}")
