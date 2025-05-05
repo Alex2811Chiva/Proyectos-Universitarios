@@ -1,0 +1,1881 @@
+Se realizara un analisis exploratorio profundo de la data disponible (train y test) como pirncipal objetivo comprender los diferentes parámetros / hiperparámetros utilizados por los modelos, buscando el modelo con el mejor rendimiento por lo que se utilizaran desde regresiones lineales, random forest y modelos mas potentes como XGBoost
+
+Puntos clave:
+
+Adversarial Validation - Con objetivo de comprobar la similitud de la distribucion entre los conjuntos de datos de train y test, con pricipal estrategia la ROC-AUC de modelos como regresion logistica o arboles de decision
+Feature Transformation - Transformación de la variable objetivo ya sea con log(loss), log(loss+100) o (loss+1)^.25 para reducir la asimetría de las variables y probar la normalidad con QQ-plot
+Regularizations with L1 and L2 Penalties - Efecto del parámetro de regularización en los coeficientes de Lasso y Ridge, El objetivo es evitar que los coeficientes sean demasiado grandes, lo cual puede llevar a modelos que se ajustan demasiado a los datos de entrenamiento y fallan al generalizar en nuevos datos. ademas de la seleccion de variables pasando esas penalizaciones.
+Gráfico de residuos y gráfico de errores de predicción - Análisis visual del rendimiento de los modelos de regresión
+Visualize Random Forest - Cambio visual en el gráfico del modelo con cambio en diferentes hiperparámetros, a saber, n_estimators, max_depth, min_samples_leaf.
+Comparacion del rendimiento de modelos - metricas dentro del train en k-folds, obtencion de los loss de test y comparar modelos tanto en train como en test.
+
+[ ]
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+Problem D: Insurance Severity
+Each row in this dataset represents an insurance claim. You must predict the value for the 'loss' column. Variables prefaced with 'cat' are categorical, while those prefaced with 'cont' are continuous.
+train_data = randomized 169486 rows from the original train_data set on Allstate Insurance · Recruitment Prediction Competition
+
+test_data = the 18832 remaining rows from the original train_data
+
+test_data_loss = the real loss column of our test_data, helping us to have a real performance comparison
+
+
+[ ]
+train_data = pd.read_csv('/content/dataA.csv')
+test_data = pd.read_csv('/content/dataB.csv')
+test_data_loss = pd.read_csv('/content/B_test_completo.csv')
+
+[ ]
+train_data.head()
+
+
+[ ]
+test_data.head()
+
+Description of Data :
+
+"claim_id": Identificador unico aleatorizado de los id originales
+"cat1" to "cat116": Variables categoricas encubiertas
+"cont1" to "cont14": Variables categoricas encubiertas
+"loss": El monto de la reclamacion que la compañia tiene que pagar, variable objetivo
+ahora, verificaremos el tipo de dato de las columnas y los valores NaN de los data sets
+
+
+[ ]
+# Check for data types of the columns
+train_data.info()
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 169486 entries, 0 to 169485
+Columns: 132 entries, cat1 to claim_id
+dtypes: float64(15), int64(1), object(116)
+memory usage: 170.7+ MB
+
+[ ]
+test_data.info()
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 18832 entries, 0 to 18831
+Columns: 131 entries, cat1 to claim_id
+dtypes: float64(14), int64(1), object(116)
+memory usage: 18.8+ MB
+
+[ ]
+# Check for null values
+pd.isnull(train_data).values.any()
+False
+
+[ ]
+pd.isnull(test_data).values.any()
+False
+Analisis exploratorio inicial
+instalar la libreria Data Analysis Baseline de ser necesario porque nos da graficas completas para analizar de la variable objetivo
+
+
+[ ]
+!pip install dabl
+
+[ ]
+import dabl
+import warnings
+
+plt.style.use('ggplot')
+warnings.filterwarnings('ignore')
+dabl.plot(train_data, target_col = 'loss')
+# Acceder a la figura y los ejes
+fig, ax = plt.gcf(), plt.gca()
+
+# Eliminar la cuadrícula
+ax.grid(False)
+
+# Mostrar el gráfico
+plt.show()
+
+dabl selecciona y prioriza las variables más relevantes para que puedas enfocarte en ellas en análisis posteriores, te permite reducir la dimensionalidad del problema identificando variables que no tienen una fuerte relación con la variable objetivo. Se enfoca en las variables con mayor correlación o dependencia con la variable objetivo. Usa métricas estadísticas como el estadístico F, que mide la relación entre las variables independientes y la variable objetivo.
+
+-Los montos de loss estan casi en totalidad por debajo de los 20k
+
+-Entre las características continuas: cont2, cont3, cont7, cont11, cont8, cont4, cont1, cont6, cont5, cont13, cont9, cont14, cont10, cont13 están contribuyendo de manera dominante al monto de la pérdida en ese orden; observamos que en cont2 con valores de entre 0.6 y 0.8 el monto de loss es mayor, en cont13 con valores entre 0.2 y 0.4 o 0.6 y 0.8 el monto de loss es mayor.
+
+-Entre las características categóricas: cat1, cat2, cat3, cat4, cat5, cat6, cat8, cat9, cat10, cat11 son las que contribuyen principalmente al monto de la pérdida en ese orden. Por ejemplo: cuando cat1 tiene un valor 'A', el monto de la pérdida es mas alto. Además, cuando cat3 tiene un valor 'B', el monto de la pérdida es mas alto.
+
+Visualizaremos el monto de la pérdida por claim_id (en este caso el id al ser aleatorio no nos permite que el grafico se vea correcto y se utiliza el index de reclamo). Este gráfico resaltará los montos de reclamos atípicos.
+
+
+[ ]
+# View outliers for loss amount
+#no usamos el id porque estan aleatorizados
+plt.figure(figsize=(10,5))
+plt.xlabel('index_train')
+plt.ylabel('Loss Value')
+plt.title('Loss Value per Index Id and Visualization of Outliers')
+plt.xlim([-1000, 180000])
+plt.ylim([-1000, 100000])
+plt.plot(train_data.index, train_data["loss"], marker='o', markeredgecolor='k')
+#quitar cuadricula
+plt.grid(False)
+plt.show()
+
+Podemos observar el outlier mas lejano en train alrededor de los 80,000 USD.
+
+como extra se realiza para los loss de test, ya que logramos conseguirlos de manera meticulosa pero nos funcionaran para ver que el comportamiento de loss es homogeneo sin importar el split de datos
+
+
+[ ]
+# View outliers for loss amount in test
+#no usamos el id porque estan aleatorizados
+plt.figure(figsize=(10,5))
+plt.xlabel('index_train')
+plt.ylabel('Loss Value')
+plt.title('Loss Value per Index Id and Visualization of Outliers')
+plt.xlim([-1000, 20000])
+plt.ylim([-1000, 130000])
+plt.plot(test_data_loss.index, test_data_loss["loss"], marker='o', markeredgecolor='k')
+plt.grid(False)
+plt.show()
+
+de la misma forma el outlier mas lejano para test es de alrededor de 120,000 USD
+
+contaremos los outliers por arriba de 30,000 tanto en train como en test para ver si en test tenemos mas irregularidad y eliminarlos
+
+
+[ ]
+train_data[train_data['loss'] > 30000].shape[0]
+57
+
+[ ]
+#datos por encima de 30,000 en loss cuantos hay en porcentaje
+print(train_data[train_data['loss'] > 30000].shape[0]/train_data.shape[0])
+print(test_data_loss[test_data_loss['loss'] > 30000].shape[0]/test_data_loss.shape[0])
+0.0003363109637374178
+0.000318606627017842
+al tener la misma cantidade outliers se piensa que como tal si deberiamos de capturar la variabilidad de esos outliers, es una fuerte indicación de que estos valores no son necesariamente errores aleatorios, sino que podrían representar una característica inherente de tus datos.
+
+Aunque de todos modos prepararemos un train_data_sin_outliers para comprobar rendimiento y MAE
+
+por 1-k encoding
+
+
+[ ]
+from copy import deepcopy
+
+train_d = train_data.drop(['claim_id'], axis=1)
+
+# One-hot encoding for categorical features
+list_of_cat_cols = list(train_data.select_dtypes(include=['object']).columns)
+train_data_sin_outliers = pd.get_dummies(data=train_d, columns=list_of_cat_cols)
+
+[ ]
+#quitar los loss arriba de 30,000 de train_data_sin_outliers
+train_data_sin_outliers = train_data_sin_outliers[train_data_sin_outliers['loss'] <= 30000]
+por label encoding se realiza mas abajo
+
+Como siguiente paso del analisis de datos se realiza un adversarial validation donde comprobaremos la homogeneidad de datos de ambos splits
+compararemos la distribucion de los datos de train y test, con motivo en mejorar la calidad de predicciones en la seccion de test, debido a que si los datos de ambos sectores se comportan de manera similar, diriamos que los modelos generador por train se pueden aplicar sin ningun problema a test, para verificar este supuesto se juntaran los datos asignando una columna extra de clasificacion 1 para los datos que provengan de train y 0 para los datos que provengan de test, con algoritmos de ML (regresion logistica y bosques de decision) se revisara la ROC_AUC que mide el rendimiento clasificacion esperando un valor cercano al 50% el cual nos diria que no puede distinguir de donde proviene la data, diciendonos que su distribucion de datos es similar
+
+para este proceso necesitaremos asignar valores numericos a nuestras categorias y juntar ambos data sets para realizar las pruebas
+
+
+[ ]
+from copy import deepcopy
+
+train_d = train_data.drop(['claim_id','loss'], axis=1)
+test_d = test_data.drop(['claim_id'], axis=1)
+train_d['Target'] = 1
+test_d['Target'] = 0
+# Merge
+prep_data = pd.concat((train_d, test_d))
+
+# Label encoding for categorical features
+data_le = deepcopy(prep_data)
+
+list_of_cat_cols = list(train_data.select_dtypes(include=['object']).columns)
+for c in range(len(list_of_cat_cols)):
+    data_le[list_of_cat_cols[c]] = data_le[list_of_cat_cols[c]].astype('category').cat.codes
+
+# One-hot encoding for categorical features
+prep_data = pd.get_dummies(data=prep_data, columns=list_of_cat_cols)
+Importante: El Label Encoding no crea nuevas columnas; reemplaza los valores categóricos con números en la misma columna. eso se queda en data_le (131 col)
+
+despues Convierte cada categoría en una nuevas columnas binarias (0 o 1) en el dataframe. en prep_data (1154 col)
+
+
+[ ]
+data = prep_data.iloc[np.random.permutation(len(prep_data))] # Shuffle data
+data.reset_index(drop = True, inplace = True)
+
+x = data.drop(['Target'], axis = 1)
+y = data.Target
+
+few_examples = 50000 # Tomamos los primeros 50,000 datos para que sean train test
+
+x_train = x[:few_examples]
+x_test = x[few_examples:]
+y_train = y[:few_examples]
+y_test = y[few_examples:]
+como mencionamos anteriormente Estamos usando dos clasificadores: Regresión logística y random forest para comprobar si son lo suficientemente capaces de identificar de donde provienen los datos, si de train o de test
+
+
+[ ]
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score as AUC
+from sklearn.model_selection import cross_val_score
+import warnings
+
+warnings.filterwarnings('ignore')
+
+clf_lr = LogisticRegression()
+clf_lr.fit(x_train, y_train)
+pred = clf_lr.predict_proba(x_test)[:,1]
+auc_lr = AUC(y_test, pred)
+print("Logistic Regression ROC_AUC: {:.2%}".format(auc_lr))
+
+clf_rf = RandomForestClassifier(n_estimators=100, n_jobs=-1)
+clf_rf.fit(x_train, y_train)
+pred = clf_rf.predict_proba(x_test)[:,1]
+auc_rf = AUC(y_test, pred)
+print("Random Forest ROC_AUC: {:.2%}".format(auc_rf))
+
+scores_lr = cross_val_score(LogisticRegression(), x, y, scoring='roc_auc', cv=2)
+print("Mean ROC_AUC for Logistic Regression : {:.2%}, std: {:.2%}".format( scores_lr.mean(), scores_lr.std()))
+
+scores_rf = cross_val_score(RandomForestClassifier(n_estimators=100, n_jobs=-1), x, y, scoring='roc_auc', cv=2)
+print("Mean ROC_AUC for Random Forest : {:.2%}, std: {:.2%}".format( scores_rf.mean(), scores_rf.std()))
+Logistic Regression ROC_AUC: 49.80%
+Random Forest ROC_AUC: 49.99%
+Mean ROC_AUC for Logistic Regression : 50.11%, std: 0.13%
+Mean ROC_AUC for Random Forest : 50.07%, std: 0.21%
+Con respecto al random forest incrementar el número de árboles puede mejorar la estabilidad y precisión del modelo, ya que reduce la varianza al promediar más predicciones.
+
+los resultados de los modelos de regresion logistica y de bosques aleatorios son exitosos al decirnos que no pueden distinguir de donde proviene la data si de train o test, debido al resultado de Mean ROC_AUC es marginalmente 50% representando la incpacidad de indentificacion de los modelos, concluyendo en datos homogeneos con baja posibilidad de realizar sobre ajuste, dandonos homogeneidad en los datos
+
+A continuación, también visualizaremos ambos puntos de datos utilizando PCA. Primero, descompondremos las características en 2 componentes principales y veremos el gráfico de proyección en 2D." , donde se barajean los datos para evitar alguna relacion de orden que tengan y realiza el PCA y se grafica la relacion del PC1 y PC2 en color para train y test
+
+
+[ ]
+from sklearn.decomposition import PCA
+
+# Shuffle
+data_le = data_le.iloc[np.random.permutation(len(data_le))]
+X = data_le.iloc[:, :130]
+y = data_le.iloc[:, 130:]
+pca = PCA(n_components=2)
+X_reduced = pca.fit_transform(X)
+
+import matplotlib.pyplot as plt
+plt.style.use('ggplot')
+
+# Train = 1, Test = 0
+plt.figure(figsize=(16,12))
+plt.scatter(X_reduced[:, 0], X_reduced[:, 1], c=np.array(y),
+            edgecolor='white', s=75,
+            cmap=plt.cm.get_cmap('Accent',2))
+plt.title('PCA transformed train and test sets')
+plt.xlabel('Principal Component 1')
+plt.ylabel('Principal Component 2')
+plt.colorbar()
+plt.grid(False)
+plt.show()
+
+El PCA toma las 130 características originales y las transforma en 2 nuevas características (componentes principales). Estas componentes principales son combinaciones lineales de las características originales que capturan la mayor cantidad de variación en los datos.
+
+Por lo tanto, podemos concluir que los puntos de datos de train y test provienen de la misma muestra, no de muestras diferentes, y existe una posibilidad mínima de sobreajuste, una vez terminado este punto ahora si podemos explorar la correlacion
+
+Correlation Analysis
+analizaremos la multicolinealidad de nuestras variables cont_i
+
+
+[ ]
+# Correlation for continuous variables
+corr_mat = train_data.iloc[:,116:131].corr()
+
+[ ]
+# Spot the continuous feature pairs with high correlation
+threshold = 0.8
+high_corrs = (corr_mat[abs(corr_mat) > threshold][corr_mat != 1.0]) .unstack().dropna().to_dict()
+unique_high_corrs = pd.DataFrame(list(set([(tuple(sorted(key)), high_corrs[key]) for key in high_corrs])), columns=['cont_feature_pair', 'correlation_coefficient'])
+unique_high_corrs = unique_high_corrs.loc[abs(unique_high_corrs['correlation_coefficient']).argsort()[::-1]]
+unique_high_corrs
+
+se pone como limite de correlacion .8, de la matriz de correlacion se excluyen los 1 (la diagonal principal), se tratan de la misma forma el 1,2 que el 2,1 para que no se repitan terminos y se orden de forma ascendente por lo que vemos una seria multicolinealidad en esos cinco pares cont11 con cont 12 , cont 1 con cont 9, cont 10 con cont6, cont 13 con cont6 y cont 1 con cont 10
+
+También verificaremos las correlaciones trazando un cluster heatmap (mapa de calor por clúster). El objetivo es identificar grupos de características continuas que tengan una tendencia similar de correlación entre sí.
+
+
+[ ]
+# Clustermap of correlations of continuous variables
+import seaborn as sns
+cont_data = train_data.iloc[:,116:131]
+cont_data = cont_data.corr().abs()
+map = sns.clustermap(cont_data, annot = True, annot_kws = {'size': 11})
+plt.setp(map.ax_heatmap.yaxis.get_majorticklabels(),rotation = 0)
+#titulo
+plt.title('Clustermap of correlations of continuous variables')
+plt.show()
+
+visiblemente tenemos dos clusters en nuetsras variables cont, uno con correlaciones altas unas con otras (cont7, cont11, cont12, cont13, cont1, cont9, cont6, cont10)
+
+tambien otro con correlaciones mas bajas entre ellas (cont4, cont8, cont2, cont3, cont5, cont14)
+
+la variable objetivo de loss no muestra correlacion importante con ninguna variable lo que indica que se buscara transformaciones y reduccion de variables para encontrar mejores resultados
+
+
+[ ]
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Crear el pairplot
+g = sns.pairplot(train_data, vars=["cont7", "cont11", "cont12", "cont13", "cont1", "cont9", "cont6", "cont10", "loss"])
+
+# Iterar sobre cada subgráfico y eliminar la cuadrícula
+for ax in g.axes.flat:
+    ax.grid(False)
+
+plt.show()
+
+se observa una correlacion lineal pronunciada y esperada de los anteriores resultados entre (cont11 y cont12) y una relacion lineal entre (cont1 y cont 9)
+
+
+[ ]
+# Pair plot for judging the inter-relations among the continuous variables in 2nd cluster
+g2 = sns.pairplot(train_data, vars=["cont4", "cont8", "cont2", "cont3", "cont5", "cont14", "loss"])
+for ax in g2.axes.flat:
+    ax.grid(False)
+plt.show()
+
+no existe una correlacion lineal visual ni en resultados anteriores de este cluster de variables
+
+ahora buscaremos convertir nuestras cat_i en variables continuas con un LabelEncoder diferente para cada columna porque no tenemos ni el mismo numero de categorias por columna ni la misma importancia
+que es muy similar a lo anterior que hicimos para averiguar la homogeneidad de datos en data_le, pero ahora con un fit transform y para los sets diferentes de train y test, ahora por separado
+
+
+[ ]
+# Convert categorical features to continuous features with Label Encoding in train data
+from sklearn.preprocessing import LabelEncoder
+lencoders = {}
+for col in train_data.select_dtypes(include=['object']).columns:
+    lencoders[col] = LabelEncoder()
+    train_data[col] = lencoders[col].fit_transform(train_data[col])
+
+[ ]
+#quitar outliers de train_data que tengan loss mayor a 30,000
+train_data_sin_outliers_label = train_data[train_data['loss'] <= 30000]
+train_data_sin_outliers_label.shape
+(169429, 132)
+
+[ ]
+# Convert categorical features to continuous features with Label Encoding in test data
+from sklearn.preprocessing import LabelEncoder
+lencoders_2 = {}
+for col in test_data.select_dtypes(include=['object']).columns:
+    lencoders_2[col] = LabelEncoder()
+    test_data[col] = lencoders_2[col].fit_transform(test_data[col])
+
+[ ]
+# Convert categorical features to continuous features with Label Encoding in test test data
+from sklearn.preprocessing import LabelEncoder
+lencoders_3 = {}
+for col in test_data_loss.select_dtypes(include=['object']).columns:
+    lencoders_3[col] = LabelEncoder()
+    test_data_loss[col] = lencoders_3[col].fit_transform(test_data_loss[col])
+revisamos la misma multicolinealidad de caracteristicas como lo hicimos con cont_i
+
+
+[ ]
+# Correlation for categorical variables
+corr_mat_2 = train_data.iloc[:,0:116].corr()
+
+[ ]
+# Spot the categorical feature pairs with high correlation
+threshold = 0.8
+high_corrs_2 = (corr_mat_2[abs(corr_mat_2) > threshold][corr_mat_2 != 1.0]) .unstack().dropna().to_dict()
+unique_high_corrs_2 = pd.DataFrame(list(set([(tuple(sorted(key)), high_corrs_2[key]) for key in high_corrs_2])), columns=['cat_feature_pair', 'correlation_coefficient'])
+unique_high_corrs_2 = unique_high_corrs_2.loc[abs(unique_high_corrs_2['correlation_coefficient']).argsort()[::-1]]
+unique_high_corrs_2
+
+se pone como limite de correlacion .8, de la matriz de correlacion se excluyen los 1 (la diagonal principal), se tratan de la misma forma el 1,2 que el 2,1 para que no se repitan terminos y se orden de forma ascendente por lo que vemos una seria multicolinealidad en esos 15 pares, el mas alto siendo de .9583 entre cat7 y cat89, realizamos un heatmap para observarlo en general, quitando 1 de cada par mas correlacionadas entre si mostradas en la tabla
+
+
+[ ]
+# Correlation Heatmap
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set_style("whitegrid", {'axes.grid' : False})
+mask = np.triu(np.ones_like(corr_mat_2, dtype=bool))
+f, ax = plt.subplots(figsize=(20, 20))
+cmap = sns.diverging_palette(250, 15, as_cmap=True)
+sns.heatmap(corr_mat_2, mask=mask, cmap=cmap, vmax=None, center=0,square=True, annot=False, linewidths=.5, cbar_kws={"shrink": 0.9})
+
+como parte de la preseleccion de variables se realiza
+
+Feature Importance :
+Entre las 130 características ya contando las cat_i y cont_i, comprobaremos cuáles están teniendo una contribución dominante a la "pérdida". Hemos elegido que sean las 30 características principales.
+
+
+[ ]
+def get_feature_importance_df(feature_importances,
+                              column_names,
+                              top_n=30):
+
+    imp_dict = dict(zip(column_names, feature_importances))
+
+    # get name features sorted
+    top_features = sorted(imp_dict, key=imp_dict.get, reverse=True)[0:top_n]
+
+    # get values
+    top_importances = [imp_dict[feature] for feature in top_features]
+
+    # create dataframe with feature_importance
+    df = pd.DataFrame(data={'feature': top_features, 'importance': top_importances})
+    return df
+esta primera funcion devuelve un DataFrame ordenado que contiene las top_n características más importantes junto con sus valores de importancia, basándose en las métricas de importancia de un modelo
+
+
+[ ]
+import numpy as np
+
+def get_col(df: 'dataframe', type_descr: 'numpy') -> list:
+
+    try:
+        col = (df.describe(include=type_descr).columns)  # pandas.core.indexes.base.Index
+    except ValueError:
+        print(f'Dataframe not contains {type_descr} columns !', end='\n')
+    else:
+        return col.tolist()
+
+list_columns = get_col(df=train_data, type_descr=[object, np.number])
+Devuelve una lista con los nombres de las columnas del DataFrame que coinciden con el tipo de datos especificado en type_descr, en este caso numericas, es una funcion que en caso de agregar otro tipo de columnas los modelos solo funcionen con las numericas y evitar errores
+
+
+[ ]
+list_columns.remove('loss')
+
+[ ]
+list_columns.remove('claim_id')
+ahora si veremos cuales son las 30 variables mas importantes dado este randomforestregressor con 132 arboles de maxima profundidad 8, minimo de muestras para que sea nodo terminal de 132, Cada árbol usará solo el 20% de las características disponibles en cada división.
+
+
+[ ]
+from sklearn.ensemble import RandomForestRegressor
+rf = RandomForestRegressor(n_estimators = train_data.shape[1], # number of component trees
+                            max_depth = 8,
+                            min_samples_leaf = train_data.shape[1],
+                            max_features = 0.2, # each tree's 20% utility in the features
+                            n_jobs = -1)
+se fittea el arbol con la data de train y los parametros que asignamos al modelo es para evitar sobreajuste y tener mejor precision
+
+
+[ ]
+rf.fit(train_data[list_columns], train_data['loss'])
+features = train_data[list_columns].columns.values
+se sacan la importancia de las caracteristicas y se aplica la funcion para sacar el top 30
+
+
+[ ]
+feature_importance = get_feature_importance_df(rf.feature_importances_, features)
+display(feature_importance)
+
+una vez teniendo el top 30, podemos visualizar de mejor forma su importancia con una grafica
+
+
+[ ]
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+fig,ax = plt.subplots()
+plt.xticks(rotation=65)
+
+fig.set_size_inches(18,10)
+#sns.set_color_codes('pastel')
+sns.barplot(data=feature_importance[:30],
+            x="feature",
+            y="importance",
+            edgecolor='k',
+            ax=ax)
+ax.set(xlabel="Variable Names",
+       ylabel='Importance',
+       title="Feature Importances")
+
+Así que vemos que principalmente las variables categóricas tienen una alta importancia característica ya que el top 7 son unicamente categoricas. Solo unas pocas variables continuas como cont2, cont7, cont12, cont11 tienen una gran importancia en las características. vemos que aun solo seleccionando el top 30 hay algunas que realmente no tienen importancia significativa que posteriormente se realizara penalizaciones L1 y L2 para comprobar y descartar variables
+
+Quitamos una de las variables de cada par muy correlacionado anteriormente visto del top30 de mas relevantes
+
+
+[ ]
+unique_high_corrs['cont_feature_pair']
+
+
+[ ]
+unique_high_corrs_2['cat_feature_pair']
+
+
+[ ]
+#ahora para cada par en unique_high_corrs
+filtered_data = feature_importance
+for i in range(len(unique_high_corrs)):
+  feature_1 = unique_high_corrs['cont_feature_pair'].iloc[i][0]
+  feature_2 = unique_high_corrs['cont_feature_pair'].iloc[i][1]
+
+  # Check if features exist in feature_importance before getting their index
+  if feature_1 in feature_importance['feature'].values and feature_2 in feature_importance['feature'].values:
+    index_feature_1 = feature_importance['feature'].index[feature_importance['feature'] == feature_1]
+    index_feature_2 = feature_importance['feature'].index[feature_importance['feature'] == feature_2]
+    max_index = max(index_feature_1, index_feature_2)
+
+    # Extract the feature name using iloc[0] to get the scalar value
+    feature_to_remove = feature_importance.loc[max_index[0], 'feature']
+
+    filtered_data = filtered_data[filtered_data['feature'] != feature_to_remove]
+  else:
+    # Handle the case where feature_1 or feature_2 is not found
+    print(f"Feature {feature_1} or {feature_2} not found in feature_importance")
+
+filtered_data
+
+
+[ ]
+#ahora para cada par en unique_high_corrs2
+filtered_data_2 = filtered_data
+for i in range(len(unique_high_corrs_2)):
+  feature_1 = unique_high_corrs_2['cat_feature_pair'].iloc[i][0]
+  feature_2 = unique_high_corrs_2['cat_feature_pair'].iloc[i][1]
+  #check if exist
+  if feature_1 in filtered_data['feature'].values and feature_2 in filtered_data['feature'].values:
+    index_feature_1 = filtered_data['feature'].index[filtered_data['feature'] == feature_1]
+    index_feature_2 = filtered_data['feature'].index[filtered_data['feature'] == feature_2]
+    max_index = max(index_feature_1, index_feature_2)
+    # Extract the feature name using iloc[0] to get the scalar value
+    feature_to_remove = filtered_data.loc[max_index[0], 'feature']
+    filtered_data_2 = filtered_data_2[filtered_data_2['feature'] != feature_to_remove]
+  else:
+    print(f"Feature {feature_1} or {feature_2} not found in feature_importance")
+filtered_data_2
+
+
+[ ]
+fig,ax = plt.subplots()
+plt.xticks(rotation=65)
+
+fig.set_size_inches(18,10)
+#sns.set_color_codes('pastel')
+sns.barplot(data=filtered_data_2[:30],
+            x="feature",
+            y="importance",
+            edgecolor='k',
+            ax=ax)
+ax.set(xlabel="Variable Names",
+       ylabel='Importance',
+       title="Feature Importances")
+
+aqui ya eliminamos las variables con presencia de multicolinealidad antes vistas y de nuestro top30 quedaron 27
+
+Variable Transformation
+Siguiendo ahora con la transformacion de la variable objetivo buscando una distibucion mas normal, comprobemos la asimetría. No se desea una variable muy sesgada en el modelo de entrenamiento, ya que infringe la normalidad. Para este propósito, experimentaremos con la aplicación de log(loss), log(loss+100) y (loss+1)^.25 . Comprobaremos el cumplimiento de la normalidad con el gráfico QQ.
+
+se agregara el comportamiento de loss tanto de train como de test para verificar la naturaleza de ambas variables objetivo en los distintos data sets
+
+
+[ ]
+train_data['loss'].skew()
+3.3279784876789624
+
+[ ]
+test_data_loss['loss'].skew()
+7.271681823347369
+podemos ver una clara asimetria mayor en test set debido al dato atipico que era el mas grande de todos los datos
+
+
+[ ]
+#el skew de los datos de loss combinados de test y train
+loss_combinado = pd.concat([train_data['loss'], test_data_loss['loss']])
+loss_combinado.skew()
+3.794958377537858
+en general la asimetria es muy alta, de 3 , la cual se busca que sea lo mas cercana a 0, por eso probaremos tranformacion en la variable objetivo de loss
+
+
+[ ]
+#train set
+# Target Feature: Loss
+
+sns.set_style("darkgrid", {'axes.grid' : False})
+plt.figure(figsize = (8, 4))
+plt.title('Loss Severity Distribution')
+plt.xlabel('Loss Severity')
+plt.ylabel('Frequency')
+train_data['loss'].hist(bins=50)
+plt.tight_layout()
+xt = plt.xticks(rotation=45)
+plt.xlim([-10000,140000])
+plt.ylim([-10000,120000])
+plt.grid(False)
+plt.annotate('Outliers\n present\n till\n this point', xy=(85000, 100), xytext=(85000, 35000), arrowprops=dict(facecolor='black'), color='black')
+plt.show()
+
+debido a que el maximo valor de loss en train es de cerca de 85,000
+
+
+[ ]
+#test set
+# Target Feature: Loss
+
+sns.set_style("darkgrid", {'axes.grid' : False})
+plt.figure(figsize = (8, 4))
+plt.title('Loss Severity Distribution')
+plt.xlabel('Loss Severity')
+plt.ylabel('Frequency')
+train_data['loss'].hist(bins=50)
+plt.tight_layout()
+xt = plt.xticks(rotation=45)
+plt.xlim([-10000,140000])
+plt.ylim([-10000,120000])
+plt.grid(False)
+plt.annotate('Outliers\n present\n till\n this point', xy=(120000, 100), xytext=(120000, 35000), arrowprops=dict(facecolor='black'), color='black')
+plt.show()
+
+debido a que el valor maximo de loss en test es cerca de 120,000
+
+comenzaremos a transformar la variable como primer intento para reducir el valor de los outliers es un logaritmo simple
+
+
+[ ]
+#Train
+# Variable Transformation Trial 1 : Apply Log on Loss
+
+train_data['log_loss'] = np.log(train_data['loss'])
+
+plt.figure(figsize = (7, 4))
+plt.title('Loss Severity Distribution (Log Transformation)')
+plt.xlabel('Log Loss Severity')
+plt.ylabel('Frequency')
+sns.distplot(train_data['log_loss'], kde = True, hist_kws={'alpha': 0.60})
+plt.tight_layout()
+xt = plt.xticks(rotation=0)
+plt.xlim([-1,13])
+plt.ylim([-0.01,0.5])
+plt.show()
+
+
+[ ]
+#test
+test_data_loss['log_loss'] = np.log(test_data_loss['loss'])
+
+plt.figure(figsize = (7, 4))
+plt.title('Loss Severity Distribution (Log Transformation)')
+plt.xlabel('Log Loss Severity')
+plt.ylabel('Frequency')
+sns.distplot(test_data_loss['log_loss'], kde = True, hist_kws={'alpha': 0.60})
+plt.tight_layout()
+xt = plt.xticks(rotation=0)
+plt.xlim([2,13])
+plt.ylim([-0.01,0.5])
+plt.show()
+
+se empiza a ver mejoria en ambos histogramas de log(loss), pero en los cuales se ven datos muy pequeños en la cola izquierda por lo que se intentara con log(loss + 100)
+
+
+[ ]
+#train
+# Variable Transformation Trial 2 : Apply Log on (loss+100)
+
+train_data['log_loss_+_100'] = np.log(100 + train_data['loss'])
+
+plt.figure(figsize = (7, 4))
+plt.title('Loss Severity Distribution (Log Transformation on Loss + 100)')
+plt.xlabel('Complex Log Loss Severity')
+plt.ylabel('Frequency')
+sns.distplot(train_data['log_loss_+_100'], kde = True, hist_kws={'alpha': 0.60})
+plt.tight_layout()
+xt = plt.xticks(rotation=0)
+plt.ylim([-0.01,0.55])
+plt.show()
+
+
+[ ]
+#test
+test_data_loss['log_loss_+_100'] = np.log(100 + test_data_loss['loss'])
+
+plt.figure(figsize = (7, 4))
+plt.title('Loss Severity Distribution (Log Transformation on Loss + 100)')
+plt.xlabel('Complex Log Loss Severity')
+plt.ylabel('Frequency')
+sns.distplot(test_data_loss['log_loss_+_100'], kde = True, hist_kws={'alpha': 0.60})
+plt.tight_layout()
+xt = plt.xticks(rotation=0)
+plt.ylim([-0.01,0.55])
+plt.show()
+
+vemos una mejoria en los histogramas que sera corroborada con los QQ-plots
+
+por ahora realizaremos la ultima transformacion propuesta (1+loss)^.25
+
+
+[ ]
+#train
+# Variable Transformation Trial 2 : Apply (1+loss)**.25
+train_data['sqrt_loss_+_1'] = np.power(1 + train_data['loss'], 0.25)
+
+plt.figure(figsize = (7, 4))
+plt.title('Loss Severity Distribution (Fourth Root Transformation on Loss + 1)')
+plt.xlabel('Complex Log Loss Severity')
+plt.ylabel('Frequency')
+sns.distplot(train_data['sqrt_loss_+_1'], kde = True, hist_kws={'alpha': 0.60})
+plt.tight_layout()
+xt = plt.xticks(rotation=0)
+plt.ylim([-0.01,0.55])
+plt.show()
+
+
+[ ]
+#test
+test_data_loss['sqrt_loss_+_1'] = np.power(1 + test_data_loss['loss'], 0.25)
+
+plt.figure(figsize = (7, 4))
+plt.title('Loss Severity Distribution (Fourth Root Transformation on Loss + 1)')
+plt.xlabel('Complex Log Loss Severity')
+plt.ylabel('Frequency')
+sns.distplot(test_data_loss['sqrt_loss_+_1'], kde = True, hist_kws={'alpha': 0.60})
+plt.tight_layout()
+xt = plt.xticks(rotation=0)
+plt.ylim([-0.01,0.55])
+plt.show()
+
+en este caso observamos los outliers mas grandes sesgando el histograma a la derecha pero tampoco se manera exagerada
+
+se medira la asimetria de las 3 transformaciones
+
+
+[ ]
+train_data['log_loss'].skew()
+0.08982297227462287
+
+[ ]
+train_data['log_loss_+_100'].skew()
+0.21778840318040693
+
+[ ]
+train_data['sqrt_loss_+_1'].skew()
+0.6445076958830029
+
+[ ]
+test_data_loss['log_loss'].skew()
+0.12111626398987592
+
+[ ]
+test_data_loss['log_loss_+_100'].skew()
+0.22122652324991032
+
+[ ]
+test_data_loss['sqrt_loss_+_1'].skew()
+0.6576071527420908
+vemos una mejor asimetria en la transformacion logaritmica pero en cuestion de simetria similar entre train y test las otras dos transformaciones mantienen su asimetria sin importar los datos de train y test
+
+Ahora si vienen los QQ plots para visualizar la normalidad de las tranformaciones en comparaciones a una normal
+
+
+[ ]
+import statsmodels.api as sm
+sample = np.random.normal(0,1, 1000)
+sm.qqplot(sample, line='45')
+plt.title('Ideal QQ-Plot for Normal Distribution')
+plt.show()
+
+asi se deberian ver nuestras QQ plots para tener un resultado positivo a normalidad
+
+
+[ ]
+#train
+# Normality Test for the Target Variable
+sm.qqplot(train_data['loss'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Original)')
+plt.show()
+
+
+[ ]
+#test
+sm.qqplot(test_data_loss['loss'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Original)')
+plt.show()
+
+observamos un cola derecha de los cuantiles elevada, nos dice que hay valores atipicos muy grandes como para que se asemeje a una normal, de misma forma los valores pequenos porque no hay valores tan pequenos y no se acoplan a la forma de una normal
+
+
+[ ]
+#train
+sm.qqplot(train_data['log_loss'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Log Transformation)')
+plt.show()
+
+
+[ ]
+#test
+sm.qqplot(test_data_loss['log_loss'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Log Transformation)')
+plt.show()
+
+para la parte de train vemos que reduce mucho los valores pequenos, ahora teniendo una cola izquierda cargada asi abajo en los cuantiles, en el caso de test al ser menos datos esto no ocurre
+
+
+[ ]
+#train
+sm.qqplot(train_data['log_loss_+_100'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Log of Loss + 100)')
+plt.show()
+
+
+[ ]
+#test
+sm.qqplot(test_data_loss['log_loss_+_100'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Log of Loss + 100)')
+plt.show()
+
+vemos un mejor comportamiento en los cuantiles ya que los valores que eran muy pequenos, los vemos ajustados con ese +100 y se logra ver una mejor normalizacion de los datos
+
+
+[ ]
+#train
+sm.qqplot(train_data['sqrt_loss_+_1'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Fourth Root Transformation on Loss + 1)')
+plt.show()
+
+
+[ ]
+#test
+sm.qqplot(test_data_loss['sqrt_loss_+_1'], line='s')
+plt.title('QQ-Plot for Loss Severity Distribution (Fourth Root Transformation on Loss + 1)')
+plt.show()
+
+esta transformacion se le +1 inicialmente porque tenemos valores de loss en decimales, y no queremos que al meter la raiz cuarta se incrementen esos valores, de misma forma esa transformacion es una forma menos agresiva de reducir los valores por lo tanto seguimos viendo las colas levantadas pero de una forma aceptable
+
+de forma que la mejor transformacion en base a los QQ plots es la primera pero en general las 3 muestran resultados aceptables para empezarlas a tratar con los modelos y revisar performance
+
+Train-Test split de los datos de train para empezar a ver resultados de performance de modelos
+
+[ ]
+feature_importance['feature']
+
+[ ]
+from sklearn.model_selection import train_test_split
+seed = 12345
+
+# considering only top 30 imp features without multicolineality
+trainx = ['cat80', 'cat79', 'cat87', 'cat57', 'cat101', 'cat12', 'cat81', 'cont2', 'cat89', 'cont7', 'cont12', 'cat10', 'cat1',
+          'cat72', 'cont3', 'cat103', 'cat94', 'cat9', 'cat13',
+          'cat111', 'cat114', 'cat106', 'cat53', 'cat100', 'cat11', 'cont6', 'cat38']
+X = train_data[trainx]
+
+[ ]
+datos_fit_sin_outlier = train_data_sin_outliers_label[trainx + ['loss']]
+
+[ ]
+trainy_log = train_data.columns[-3] #considering log_loss
+Y_log = train_data[trainy_log]
+X_train, X_test, y_train_log, y_test_log = train_test_split(X, Y_log, test_size=0.20, random_state=seed)
+
+[ ]
+trainy_log_100 = train_data.columns[-2] #considering log_loss_+_100
+Y_log_100 = train_data[trainy_log_100]
+X_train, X_test, y_train_log_100, y_test_log_100 = train_test_split(X, Y_log_100, test_size=0.20, random_state=seed)
+
+[ ]
+trainy_sqrt = train_data.columns[-1] #considering sqrt_loss_+_1
+Y_sqrt = train_data[trainy_sqrt]
+X_train, X_test, y_train_sqrt, y_test_sqrt = train_test_split(X, Y_sqrt, test_size=0.20, random_state=seed)
+
+[ ]
+import statsmodels.api as sm
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import mean_absolute_error, make_scorer, get_scorer_names
+
+model1_log = LinearRegression(n_jobs=-1)
+mae_val_log = make_scorer(mean_absolute_error, greater_is_better=False)
+results1_log = cross_val_score(model1_log, X_train, y_train_log, cv=5, scoring=mae_val_log, n_jobs=-1)
+print("Linear Regression MAE log: ({0:.3f}) +/- ({1:.3f})".format(-1*results1_log.mean(), results1_log.std()))
+Linear Regression MAE log: (0.473) +/- (0.003)
+
+[ ]
+model1_log_100 = LinearRegression(n_jobs=-1)
+mae_val_log_100 = make_scorer(mean_absolute_error, greater_is_better=False)
+results1_log_100 = cross_val_score(model1_log_100, X_train, y_train_log_100, cv=5, scoring=mae_val_log_100, n_jobs=-1)
+print("Linear Regression MAE log_100: ({0:.3f}) +/- ({1:.3f})".format(-1*results1_log_100.mean(), results1_log_100.std()))
+Linear Regression MAE log_100: (0.446) +/- (0.003)
+
+[ ]
+model1_sqrt = LinearRegression(n_jobs=-1)
+mae_val_sqrt = make_scorer(mean_absolute_error, greater_is_better=False)
+results1_sqrt = cross_val_score(model1_sqrt, X_train, y_train_sqrt, cv=5, scoring=mae_val_sqrt, n_jobs=-1)
+print("Linear Regression Mae sqrt+1: ({0:.3f}) +/- ({1:.3f})".format(-1*results1_sqrt.mean(), results1_sqrt.std()))
+Linear Regression Mae sqrt+1: (0.809) +/- (0.005)
+vemos los summary de los modelos lineales
+
+[ ]
+X2 = sm.add_constant(X)
+model = sm.OLS(Y_log, X2)
+model_ = model.fit()
+print(model_.summary())
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:               log_loss   R-squared:                       0.451
+Model:                            OLS   Adj. R-squared:                  0.451
+Method:                 Least Squares   F-statistic:                     5164.
+Date:                Tue, 26 Nov 2024   Prob (F-statistic):               0.00
+Time:                        21:25:23   Log-Likelihood:            -1.5426e+05
+No. Observations:              169486   AIC:                         3.086e+05
+Df Residuals:                  169458   BIC:                         3.089e+05
+Df Model:                          27                                         
+Covariance Type:            nonrobust                                         
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const          7.1762      0.022    324.162      0.000       7.133       7.220
+cat80         -0.1739      0.002    -76.826      0.000      -0.178      -0.169
+cat79          0.1186      0.003     47.362      0.000       0.114       0.123
+cat87          0.0861      0.003     25.780      0.000       0.080       0.093
+cat57          0.5295      0.019     28.402      0.000       0.493       0.566
+cat101         0.0128      0.003      3.960      0.000       0.006       0.019
+cat12          0.3050      0.011     27.144      0.000       0.283       0.327
+cat81         -0.1034      0.002    -44.919      0.000      -0.108      -0.099
+cont2          0.3207      0.009     34.879      0.000       0.303       0.339
+cat89          0.0342      0.014      2.520      0.012       0.008       0.061
+cont7          0.5043      0.015     34.766      0.000       0.476       0.533
+cont12         0.1460      0.014     10.229      0.000       0.118       0.174
+cat10          0.1139      0.011     10.269      0.000       0.092       0.136
+cat1          -0.2095      0.004    -58.756      0.000      -0.216      -0.202
+cat72          0.1038      0.003     32.239      0.000       0.097       0.110
+cont3          0.1170      0.011     10.498      0.000       0.095       0.139
+cat103         0.1256      0.002     69.470      0.000       0.122       0.129
+cat94         -0.0019      0.002     -0.916      0.360      -0.006       0.002
+cat9           0.1507      0.009     16.343      0.000       0.133       0.169
+cat13          0.0542      0.011      4.892      0.000       0.032       0.076
+cat111         0.0739      0.001     89.549      0.000       0.072       0.075
+cat114         0.0185      0.001     23.732      0.000       0.017       0.020
+cat106         0.0065      0.002      3.789      0.000       0.003       0.010
+cat53          0.3447      0.007     48.505      0.000       0.331       0.359
+cat100         0.0011      0.000      2.327      0.020       0.000       0.002
+cat11          0.0493      0.011      4.444      0.000       0.028       0.071
+cont6         -0.0245      0.016     -1.494      0.135      -0.057       0.008
+cat38          0.1376      0.007     20.677      0.000       0.125       0.151
+==============================================================================
+Omnibus:                     5372.319   Durbin-Watson:                   1.990
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):            10820.534
+Skew:                          -0.225   Prob(JB):                         0.00
+Kurtosis:                       4.153   Cond. No.                         198.
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+
+[ ]
+model = sm.OLS(Y_log_100, X2)
+model_ = model.fit()
+print(model_.summary())
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:         log_loss_+_100   R-squared:                       0.460
+Model:                            OLS   Adj. R-squared:                  0.460
+Method:                 Least Squares   F-statistic:                     5348.
+Date:                Tue, 26 Nov 2024   Prob (F-statistic):               0.00
+Time:                        21:25:27   Log-Likelihood:            -1.4341e+05
+No. Observations:              169486   AIC:                         2.869e+05
+Df Residuals:                  169458   BIC:                         2.872e+05
+Df Model:                          27                                         
+Covariance Type:            nonrobust                                         
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const          7.2597      0.021    349.611      0.000       7.219       7.300
+cat80         -0.1664      0.002    -78.378      0.000      -0.171      -0.162
+cat79          0.1154      0.002     49.147      0.000       0.111       0.120
+cat87          0.0833      0.003     26.608      0.000       0.077       0.089
+cat57          0.5232      0.017     29.917      0.000       0.489       0.557
+cat101         0.0128      0.003      4.216      0.000       0.007       0.019
+cat12          0.2888      0.011     27.397      0.000       0.268       0.309
+cat81         -0.0990      0.002    -45.814      0.000      -0.103      -0.095
+cont2          0.3095      0.009     35.886      0.000       0.293       0.326
+cat89          0.0323      0.013      2.541      0.011       0.007       0.057
+cont7          0.4827      0.014     35.478      0.000       0.456       0.509
+cont12         0.1401      0.013     10.463      0.000       0.114       0.166
+cat10          0.1061      0.010     10.206      0.000       0.086       0.127
+cat1          -0.1974      0.003    -59.038      0.000      -0.204      -0.191
+cat72          0.0989      0.003     32.757      0.000       0.093       0.105
+cont3          0.1107      0.010     10.592      0.000       0.090       0.131
+cat103         0.1185      0.002     69.890      0.000       0.115       0.122
+cat94         -0.0017      0.002     -0.847      0.397      -0.006       0.002
+cat9           0.1396      0.009     16.140      0.000       0.123       0.157
+cat13          0.0498      0.010      4.793      0.000       0.029       0.070
+cat111         0.0697      0.001     90.035      0.000       0.068       0.071
+cat114         0.0182      0.001     24.779      0.000       0.017       0.020
+cat106         0.0059      0.002      3.674      0.000       0.003       0.009
+cat53          0.3215      0.007     48.238      0.000       0.308       0.335
+cat100         0.0012      0.000      2.743      0.006       0.000       0.002
+cat11          0.0451      0.010      4.333      0.000       0.025       0.065
+cont6         -0.0282      0.015     -1.833      0.067      -0.058       0.002
+cat38          0.1296      0.006     20.775      0.000       0.117       0.142
+==============================================================================
+Omnibus:                     1413.390   Durbin-Watson:                   1.989
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):             2165.672
+Skew:                          -0.066   Prob(JB):                         0.00
+Kurtosis:                       3.538   Cond. No.                         198.
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+
+[ ]
+model = sm.OLS(Y_sqrt, X2)
+model_ = model.fit()
+print(model_.summary())
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:          sqrt_loss_+_1   R-squared:                       0.483
+Model:                            OLS   Adj. R-squared:                  0.483
+Method:                 Least Squares   F-statistic:                     5857.
+Date:                Tue, 26 Nov 2024   Prob (F-statistic):               0.00
+Time:                        21:25:30   Log-Likelihood:            -2.4628e+05
+No. Observations:              169486   AIC:                         4.926e+05
+Df Residuals:                  169458   BIC:                         4.929e+05
+Df Model:                          27                                         
+Covariance Type:            nonrobust                                         
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const          6.0000      0.038    157.485      0.000       5.925       6.075
+cat80         -0.3140      0.004    -80.600      0.000      -0.322      -0.306
+cat79          0.2446      0.004     56.765      0.000       0.236       0.253
+cat87          0.1728      0.006     30.082      0.000       0.162       0.184
+cat57          1.2316      0.032     38.388      0.000       1.169       1.295
+cat101         0.0310      0.006      5.555      0.000       0.020       0.042
+cat12          0.5171      0.019     26.737      0.000       0.479       0.555
+cat81         -0.1923      0.004    -48.531      0.000      -0.200      -0.185
+cont2          0.6376      0.016     40.286      0.000       0.607       0.669
+cat89          0.0572      0.023      2.450      0.014       0.011       0.103
+cont7          0.9710      0.025     38.896      0.000       0.922       1.020
+cont12         0.2830      0.025     11.522      0.000       0.235       0.331
+cat10          0.1767      0.019      9.258      0.000       0.139       0.214
+cat1          -0.3508      0.006    -57.172      0.000      -0.363      -0.339
+cat72          0.1882      0.006     33.973      0.000       0.177       0.199
+cont3          0.2096      0.019     10.927      0.000       0.172       0.247
+cat103         0.2160      0.003     69.435      0.000       0.210       0.222
+cat94         -0.0042      0.004     -1.156      0.248      -0.011       0.003
+cat9           0.2333      0.016     14.708      0.000       0.202       0.264
+cat13          0.0770      0.019      4.038      0.000       0.040       0.114
+cat111         0.1266      0.001     89.194      0.000       0.124       0.129
+cat114         0.0390      0.001     29.047      0.000       0.036       0.042
+cat106         0.0088      0.003      2.969      0.003       0.003       0.015
+cat53          0.5556      0.012     45.431      0.000       0.532       0.580
+cat100         0.0028      0.001      3.603      0.000       0.001       0.004
+cat11          0.0660      0.019      3.460      0.001       0.029       0.103
+cont6         -0.1063      0.028     -3.763      0.000      -0.162      -0.051
+cat38          0.2324      0.011     20.302      0.000       0.210       0.255
+==============================================================================
+Omnibus:                     5388.849   Durbin-Watson:                   1.989
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):             9289.271
+Skew:                           0.278   Prob(JB):                         0.00
+Kurtosis:                       4.003   Cond. No.                         198.
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+Elastic Net Regression
+Elastic Net es una mezcla de Ridge y Lazo. Si ponemos l1_ratio = 0, la penalización es 100% de penalización L2 (Regresión de cresta). De lo contrario, si tomamos l1_ratio = 1, es 100% de penalización L1 (Regresión de lazo). Para cualquier valor l1_ratio = x, donde 0 < x < 1, la penalización es una combinación de L1 (x%) y L2 (100-x)%.
+
+se encuentran los alpha y l1_ratio mas optimos en documentacion anterior
+
+
+[ ]
+from sklearn.linear_model import ElasticNet
+model4 = ElasticNet(alpha=0.0001,l1_ratio=0.5,random_state=seed)
+mae_val = make_scorer(mean_absolute_error, greater_is_better=False)
+results4_log = cross_val_score(model4, X_train, y_train_log, cv=5, scoring=mae_val, n_jobs=1)
+results4_log_100 = cross_val_score(model4, X_train, y_train_log_100, cv=5, scoring=mae_val, n_jobs=1)
+results4_sqrt = cross_val_score(model4, X_train, y_train_sqrt, cv=5, scoring=mae_val, n_jobs=1)
+print("Linear Regression Elastic Net log MAE: ({0:.3f}) +/- ({1:.3f})".format(-results4_log.mean(), results4_log.std()))
+print("Linear Regression Elastic Net log +100 MAE: ({0:.3f}) +/- ({1:.3f})".format(-results4_log_100.mean(), results4_log_100.std()))
+print("Linear Regression Elastic Net sqrt + 1 MAE: ({0:.3f}) +/- ({1:.3f})".format(-results4_sqrt.mean(), results4_sqrt.std()))
+Linear Regression Elastic Net log MAE: (0.473) +/- (0.003)
+Linear Regression Elastic Net log +100 MAE: (0.446) +/- (0.003)
+Linear Regression Elastic Net sqrt + 1 MAE: (0.809) +/- (0.005)
+Ahora visualizaremos los coeficientes en comparacion de los lineales y los elastic net, para ver si se descarta alguna otra X para los siguientes modelos
+
+
+[ ]
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import ElasticNet
+linear = LinearRegression()
+linear.fit(X_train, y_train_log)
+enet = ElasticNet(alpha=0.0001, l1_ratio=0.5)
+enet.fit(X_train, y_train_log)
+
+plt.figure(figsize = (16, 6))
+plt.plot(enet.coef_, color='red', linewidth=0.5, marker='^', label='Elastic net coefficients with α = 0.0001 & L1 Ratio = 0.5')
+plt.plot(linear.coef_, color='blue', linewidth=0.5, marker='o', label='Linear coefficients without regularization')
+plt.grid(color='black', linestyle='dotted')
+plt.ylim([-0.6,0.7])
+plt.xlim([-1,30])
+plt.legend(loc='best')
+plt.title('Coefficient Distribution According to the Linear Regression type and y = log(loss)')
+plt.xlabel('Variables in Ranked Order')
+plt.ylabel('Estimated Coefficient Value')
+plt.show()
+
+
+[ ]
+linear = LinearRegression()
+linear.fit(X_train, y_train_log_100)
+enet = ElasticNet(alpha=0.0001, l1_ratio=0.5)
+enet.fit(X_train, y_train_log_100)
+
+plt.figure(figsize = (16, 6))
+plt.plot(enet.coef_, color='red', linewidth=0.5, marker='^', label='Elastic net coefficients with α = 0.0001 & L1 Ratio = 0.5')
+plt.plot(linear.coef_, color='blue', linewidth=0.5, marker='o', label='Linear coefficients without regularization')
+plt.grid(color='black', linestyle='dotted')
+plt.ylim([-0.6,0.7])
+plt.xlim([-1,30])
+plt.legend(loc='best')
+plt.title('Coefficient Distribution According to the Linear Regression type and y = log(loss + 100)')
+plt.xlabel('Variables in Ranked Order')
+plt.ylabel('Estimated Coefficient Value')
+plt.show()
+
+
+[ ]
+linear = LinearRegression()
+linear.fit(X_train, y_train_sqrt)
+enet = ElasticNet(alpha=0.0001, l1_ratio=0.5)
+enet.fit(X_train, y_train_sqrt)
+
+plt.figure(figsize = (16, 6))
+plt.plot(enet.coef_, color='red', linewidth=0.5, marker='^', label='Elastic net coefficients with α = 0.0001 & L1 Ratio = 0.5')
+plt.plot(linear.coef_, color='blue', linewidth=0.5, marker='o', label='Linear coefficients without regularization')
+plt.grid(color='black', linestyle='dotted')
+plt.ylim([-0.6,1.25])
+plt.xlim([-1,30])
+plt.legend(loc='best')
+plt.title('Coefficient Distribution According to the Linear Regression type and y = (loss + 1)**.25')
+plt.xlabel('Variables in Ranked Order')
+plt.ylabel('Estimated Coefficient Value')
+plt.show()
+
+realmente la penalizacion enet, no hace mucho efecto devido a que varios coeficientes ya son cercanos a 0, por lo tanto esos se iran de X_train contando desde 0 (variable 4,16,21,23) debido a su importancia de casi despues de las penalizaciones L1 y L2
+
+
+[ ]
+X_train.columns
+Index(['cat80', 'cat79', 'cat87', 'cat57', 'cat101', 'cat12', 'cat81', 'cont2',
+       'cat89', 'cont7', 'cont12', 'cat10', 'cat1', 'cat72', 'cont3', 'cat103',
+       'cat94', 'cat9', 'cat13', 'cat111', 'cat114', 'cat106', 'cat53',
+       'cat100', 'cat11', 'cont6', 'cat38'],
+      dtype='object')
+por lo tanto se va cat101, cat94, cat106, cat100
+
+
+[ ]
+X_train_adj = X_train.drop(['cat101', 'cat94', 'cat106', 'cat100'], axis=1)
+
+[ ]
+datos_fit_sin_outlier_adj = datos_fit_sin_outlier.drop(['cat101', 'cat94', 'cat106', 'cat100'], axis=1)
+
+[ ]
+X_test_adj = X_test.drop(['cat101', 'cat94', 'cat106', 'cat100'], axis=1)
+tambien haremos un ploteo de residuos del modelo enet, entrenando con train y haciendo metricas sobre el plit de test de train
+
+
+[ ]
+from yellowbrick.regressor import ResidualsPlot
+viz_e = ResidualsPlot(enet)
+viz_e.fit(X_train, y_train_log)
+viz_e.score(X_test, y_test_log)
+plt.title('Gráfico de Residuos para Modelo ElasticNet - Log')
+plt.gca().grid(False)
+viz_e.show()
+viz_e.fit(X_train, y_train_log_100)
+viz_e.score(X_test, y_test_log_100)
+plt.title("Gráfico de Residuos para Modelo ElasticNet - Log + 100")
+plt.gca().grid(False)
+viz_e.show()
+viz_e.fit(X_train, y_train_sqrt)
+viz_e.score(X_test, y_test_sqrt)
+plt.title("Gráfico de Residuos para Modelo ElasticNet - (Loss + 1)**.25")
+plt.gca().grid(False)
+viz_e.show()
+
+vemos una clara heterocedasticidad de varianza en los errores en las dos primeras transformaciones y un comportamiento no tan malo en la tercera pero de esta forma descartamos los modelos lineales como buenos modelos para predecir loss
+
+Observación común de todas las parcelas residuales : El objetivo principal de la visualización de la gráfica de residuos es analizar la varianza del error del regresor. Aquí, los puntos no se dispersan aleatoriamente alrededor del eje horizontal. Esto da una indicación de que un modelo de regresión lineal no es adecuado para los datos. Un modelo no lineal (tal vez un modelo basado en árboles) es más apropiado.
+
+Random Forest Model
+La función Random forest actúa como una potenciación de los árboles de decisiones, siendo este un conjunto de varios árboles a la vez, en donde los valores obtenidos vendrán del promedio de los votos de cada árbol. Sus entradas de la función son: n_jobs= no. de núcleos a utilizae para optimizar el proceso n_estimators=no. de árboles de decisión en el bloque max_features= no. máximo de variables en las que se puede dividir cada NodeVisitor random_state= fija o no una semilla para su posterior reproducción
+
+mae_val = make_scorer(mean_absolute_error, greater_is_better=False): Crea una función de puntuación que utiliza el error absoluto medio (MAE) para evaluar el rendimiento del modelo. greater_is_better=False indica que un valor de MAE más bajo es mejor.
+
+utilizando X_train_adj descartando las variables sin importancia verificadas por los modelos lineales
+
+
+[ ]
+from sklearn.ensemble import RandomForestRegressor
+
+model5 = RandomForestRegressor(n_jobs=-1,n_estimators=300, max_features=12, random_state=seed)
+mae_val = make_scorer(mean_absolute_error, greater_is_better=False)
+results5_log = cross_val_score(model5, X_train_adj, y_train_log, cv=5, scoring=mae_val, n_jobs=-1)
+print("Random Forest Regressor MAE log: ({0:.10f}) +/- ({1:.3f})".format(-1*results5_log.mean(), results5_log.std()))
+Random Forest Regressor MAE log: (0.4672253039) +/- (0.002)
+
+[ ]
+results5_log_100 = cross_val_score(model5, X_train_adj, y_train_log_100, cv=5, scoring=mae_val, n_jobs=-1)
+print("Random Forest Regressor MAE log + 100: ({0:.10f}) +/- ({1:.3f})".format(-1*results5_log_100.mean(), results5_log_100.std()))
+Random Forest Regressor MAE log + 100: (0.4402940875) +/- (0.001)
+
+[ ]
+results5_sqrt = cross_val_score(model5, X_train_adj, y_train_sqrt, cv=5, scoring=mae_val, n_jobs=-1)
+print("Random Forest Regressor MAE sqrt: ({0:.10f}) +/- ({1:.3f})".format(-1*results5_sqrt.mean(), results5_sqrt.std()))
+Random Forest Regressor MAE sqrt: (0.7984279747) +/- (0.003)
+observamos una mejoria en el mae de validacion cruzada en 2 de las 3 variables transformadas, pero no es necesaria la cantidad de 300 arboles en el bosque para obtener dichos resultados, con 100 seria suficiente
+
+
+[ ]
+from sklearn.ensemble import RandomForestRegressor
+model_100n_log = RandomForestRegressor(n_jobs=-1,n_estimators=100, max_features=12, random_state=seed)
+model_100n_log.fit(X_train_adj, y_train_log)
+
+
+[ ]
+model_100n_log_100 = RandomForestRegressor(n_jobs=-1,n_estimators=100, max_features=12, random_state=seed)
+model_100n_log_100.fit(X_train_adj, y_train_log_100)
+
+
+[ ]
+model_100n_sqrt = RandomForestRegressor(n_jobs=-1,n_estimators=100, max_features=12, random_state=seed)
+model_100n_sqrt.fit(X_train_adj, y_train_sqrt)
+
+Ahora estaremos notando el nivel de aleatoriedad en bosques hechos de 100 árboles.
+
+Reconocimiento : Hemos tomado las funciones de la visualización de Random Forest de el trabajo de Aysen Tatarinov. Ha escrito códigos en detalle para visualizar bosques formados por muchos árboles en un simple gráfico.
+
+usaremos funciones para visualizar los bosques aleatorios
+
+
+[ ]
+from sklearn.tree import _tree
+def leaf__depths(estimator, nodeid = 0):
+     left__child = estimator.children_left[nodeid]
+     right__child = estimator.children_right[nodeid]
+
+     if left__child == _tree.TREE_LEAF:
+         depths = np.array([0])
+     else:
+         left__depths = leaf__depths(estimator, left__child) + 1
+         right__depths = leaf__depths(estimator, right__child) + 1
+         depths = np.append(left__depths, right__depths)
+
+     return depths
+
+[ ]
+def leaf__samples(estimator, nodeid = 0):
+     left__child = estimator.children_left[nodeid]
+     right__child = estimator.children_right[nodeid]
+
+     if left__child == _tree.TREE_LEAF:
+         samples = np.array([estimator.n_node_samples[nodeid]])
+     else:
+         left__samples = leaf__samples(estimator, left__child)
+         right__samples = leaf__samples(estimator, right__child)
+         samples = np.append(left__samples, right__samples)
+
+     return samples
+
+[ ]
+
+def visualization__estimator(ensemble, tree_id=0):
+
+     plt.figure(figsize=(8,8))
+     plt.subplot(211)
+
+     estimator = ensemble.estimators_[tree_id].tree_
+     depths = leaf__depths(estimator)
+
+     plt.hist(depths, histtype='step', bins=range(min(depths), max(depths)+1))
+     plt.grid(color='black', linestyle='dotted')
+     plt.xlabel("Depth of leaf nodes (tree %s)" % tree_id)
+     plt.show()
+
+[ ]
+def visualization__forest(ensemble):
+
+     plt.figure(figsize=(8,8))
+     plt.subplot(211)
+
+     depths__all = np.array([], dtype=int)
+
+     for x in ensemble.estimators_:
+         estimator = x.tree_
+         depths = leaf__depths(estimator)
+         depths__all = np.append(depths__all, depths)
+         plt.hist(depths, histtype='step', bins=range(min(depths), max(depths)+1))
+
+     plt.hist(depths__all, histtype='step',
+              bins=range(min(depths__all), max(depths__all)+1),
+              weights=np.ones(len(depths__all))/len(ensemble.estimators_),
+              linewidth=2)
+     plt.grid(color='black', linestyle='dotted')
+     plt.xlabel("Depth of leaf nodes")
+
+     plt.show()
+Esta función te permite visualizar la distribución de las profundidades de los nodos hoja en un árbol de decisión específico dentro de un conjunto de estimadores.
+
+
+[ ]
+visualization__estimator(model_100n_log)
+
+
+[ ]
+visualization__estimator(model_100n_log_100)
+
+
+[ ]
+visualization__estimator(model_100n_sqrt)
+
+Cada barra representa la cantidad de nodos hoja que se encuentran a una determinada profundidad en el árbol, lo cual vemos resultados en los histogramas de las hojas para las 3 variables objetivo de interes
+
+
+[ ]
+visualization__forest(model_100n_log)
+
+
+[ ]
+visualization__forest(model_100n_log_100)
+
+
+[ ]
+visualization__forest(model_100n_sqrt)
+
+se puede visualizar de esta manera los histogramas de los arboles de los bosques viendo las distintas profundiades de las hojas de los arboles y en general cada linea es un arbol del bosque
+
+XGBoost Model
+despues de probar los bosques aleatorios se usa un modelo mas potente, XGBoost , que significa Extreme Gradient Boosting, es una biblioteca de aprendizaje automático de árboles de decisión potenciados por gradiente (GBDT) distribuida y escalable. Proporciona potenciación de árboles paralelos y es la biblioteca de aprendizaje automático líder para problemas de regresión, clasificación y ranking.
+
+
+[ ]
+from xgboost import XGBRegressor
+model_xgb_log = XGBRegressor(fair_obj = .7, n_estimators = 100,random_state = seed)
+model_xgb_log_100 = XGBRegressor(fair_obj = .7, n_estimators = 100, random_state = seed)
+model_xgb_sqrt = XGBRegressor(fair_obj = .7, n_estimators = 100, random_state = seed)
+
+[ ]
+model_xgb_log.fit(X_train_adj,y_train_log)
+
+
+[ ]
+model_xgb_log_100.fit(X_train_adj,y_train_log_100)
+
+
+[ ]
+model_xgb_sqrt.fit(X_train_adj,y_train_sqrt)
+
+
+[ ]
+model6 = XGBRegressor(fair_obj = .7, n_estimators = 100,random_state = seed)
+mae_val = make_scorer(mean_absolute_error, greater_is_better=False)
+results6_log = cross_val_score(model6, X_train_adj, y_train_log, cv=5, scoring=mae_val, n_jobs=-1)
+print("XGBoost MAE log: ({0:.10f}) +/- ({1:.3f})".format(-1*results6_log.mean(), results6_log.std()))
+XGBoost MAE log: (0.4453145564) +/- (0.002)
+
+[ ]
+results6_log_100 = cross_val_score(model6, X_train_adj, y_train_log_100, cv=5, scoring=mae_val, n_jobs=-1)
+print("XGBoost MAE log: ({0:.10f}) +/- ({1:.3f})".format(-1*results6_log_100.mean(), results6_log_100.std()))
+XGBoost MAE log: (0.4203475617) +/- (0.002)
+
+[ ]
+results6_sqrt = cross_val_score(model6, X_train_adj, y_train_sqrt, cv=5, scoring=mae_val, n_jobs=-1)
+print("XGBoost MAE sqrt: ({0:.10f}) +/- ({1:.3f})".format(-1*results6_sqrt.mean(), results6_sqrt.std()))
+XGBoost MAE sqrt: (0.7653368333) +/- (0.003)
+
+[ ]
+model7 = XGBRegressor(fair_obj = .4, n_estimators = 1000 , random_state = seed)
+mae_val = make_scorer(mean_absolute_error, greater_is_better=False)
+results7_log = cross_val_score(model7, X_train_adj, y_train_log, cv=5, scoring=mae_val, n_jobs=-1)
+print("XGBoost2 MAE log: ({0:.10f}) +/- ({1:.3f})".format(-1*results7_log.mean(), results7_log.std()))
+XGBoost2 MAE log: (0.4644911244) +/- (0.002)
+
+[ ]
+results7_log_100 = cross_val_score(model7, X_train_adj, y_train_log_100, cv=5, scoring=mae_val, n_jobs=-1)
+print("XGBoost2 MAE log: ({0:.10f}) +/- ({1:.3f})".format(-1*results7_log_100.mean(), results7_log_100.std()))
+XGBoost2 MAE log: (0.4374510556) +/- (0.002)
+
+[ ]
+results7_sqrt = cross_val_score(model7, X_train_adj, y_train_sqrt, cv=5, scoring=mae_val,n_jobs=-1)
+print("XGBoost2 MAE log: ({0:.10f}) +/- ({1:.3f})".format(-1*results7_sqrt.mean(), results7_sqrt.std()))
+XGBoost2 MAE log: (0.7975832088) +/- (0.003)
+Metricas de rendimiento del modelo en el split de DataA
+Una vez visto el MAE de los modelos usados , el XGBoost con 100 estimadores se queda para ver los resultados con el test de train y despues el test test
+
+
+[ ]
+y_log_pred = model_xgb_log.predict(X_test_adj)
+y_log_100_pred = model_xgb_log_100.predict(X_test_adj)
+y_sqrt_pred = model_xgb_sqrt.predict(X_test_adj)
+
+[ ]
+#sacar metricas de rendimiento del test de train de la data
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+mae_log = mean_absolute_error(y_test_log, y_log_pred)
+mae_log_100 = mean_absolute_error(y_test_log_100, y_log_100_pred)
+mae_sqrt = mean_absolute_error(y_test_sqrt, y_sqrt_pred)
+
+mse_log = mean_squared_error(y_test_log, y_log_pred)
+mse_log_100 = mean_squared_error(y_test_log_100, y_log_100_pred)
+mse_sqrt = mean_squared_error(y_test_sqrt, y_sqrt_pred)
+
+r2_log = r2_score(y_test_log, y_log_pred)
+r2_log_100 = r2_score(y_test_log_100, y_log_100_pred)
+r2_sqrt = r2_score(y_test_sqrt, y_sqrt_pred)
+
+print('El MAE del modelo XGBoost para y = log(loss): ',{mae_log})
+print('El MSE del modelo XGBoost para y = log(loss): ',{mse_log})
+print('El R2 del modelo XGBoost para y = log(loss): ',{r2_log},'\n')
+
+print('El MAE del modelo XGBoost para y = log(loss + 100):',{mae_log_100})
+print('El MSE del modelo XGBoost para y = log(loss + 100):',{mse_log_100})
+print('El R2 del modelo XGBoost para y = log(loss + 100):',{r2_log_100},'\n')
+
+print('El MAE del modelo XGBoost para y = sqrt(loss + 1):',{mae_sqrt})
+print('El MSE del modelo XGBoost para y = sqrt(loss + 1):',{mse_sqrt})
+print('El R2 del modelo XGBoost para y = sqrt(loss + 1):',{r2_sqrt},'\n')
+El MAE del modelo XGBoost para y = log(loss):  {0.44707909325621376}
+El MSE del modelo XGBoost para y = log(loss):  {0.33215298629465156}
+El R2 del modelo XGBoost para y = log(loss):  {0.49637774439581595} 
+
+El MAE del modelo XGBoost para y = log(loss + 100): {0.4220085328921028}
+El MSE del modelo XGBoost para y = log(loss + 100): {0.29100841094547225}
+El R2 del modelo XGBoost para y = log(loss + 100): {0.5052512693319708} 
+
+El MAE del modelo XGBoost para y = sqrt(loss + 1): {0.7681401613670822}
+El MSE del modelo XGBoost para y = sqrt(loss + 1): {0.9796075045028698}
+El R2 del modelo XGBoost para y = sqrt(loss + 1): {0.5256745941846469} 
+
+
+[ ]
+X_train_adj_const = sm.add_constant(X_train_adj)
+X_train_adj_const['const'] = .7
+X_test_adj_const = sm.add_constant(X_test_adj)
+X_test_adj_const['const'] = .7
+
+[ ]
+model_xgb2_log = XGBRegressor()
+model_xgb2_log_100 = XGBRegressor()
+model_xgb2_sqrt = XGBRegressor()
+
+[ ]
+model_xgb2_log.fit(X_train_adj_const,y_train_log)
+model_xgb2_log_100.fit(X_train_adj_const,y_train_log_100)
+model_xgb2_sqrt.fit(X_train_adj_const,y_train_sqrt)
+
+
+[ ]
+y_log_pred = model_xgb2_log.predict(X_test_adj_const)
+y_log_100_pred = model_xgb2_log_100.predict(X_test_adj_const)
+y_sqrt_pred = model_xgb2_sqrt.predict(X_test_adj_const)
+
+[ ]
+#sacar metricas de rendimiento del test de train de la data
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+mae_log = mean_absolute_error(y_test_log, y_log_pred)
+mae_log_100 = mean_absolute_error(y_test_log_100, y_log_100_pred)
+mae_sqrt = mean_absolute_error(y_test_sqrt, y_sqrt_pred)
+
+mse_log = mean_squared_error(y_test_log, y_log_pred)
+mse_log_100 = mean_squared_error(y_test_log_100, y_log_100_pred)
+mse_sqrt = mean_squared_error(y_test_sqrt, y_sqrt_pred)
+
+r2_log = r2_score(y_test_log, y_log_pred)
+r2_log_100 = r2_score(y_test_log_100, y_log_100_pred)
+r2_sqrt = r2_score(y_test_sqrt, y_sqrt_pred)
+
+print('El MAE del modelo XGBoost para y = log(loss): ',{mae_log})
+print('El MSE del modelo XGBoost para y = log(loss): ',{mse_log})
+print('El R2 del modelo XGBoost para y = log(loss): ',{r2_log},'\n')
+
+print('El MAE del modelo XGBoost para y = log(loss + 100):',{mae_log_100})
+print('El MSE del modelo XGBoost para y = log(loss + 100):',{mse_log_100})
+print('El R2 del modelo XGBoost para y = log(loss + 100):',{r2_log_100},'\n')
+
+print('El MAE del modelo XGBoost para y = sqrt(loss + 1):',{mae_sqrt})
+print('El MSE del modelo XGBoost para y = sqrt(loss + 1):',{mse_sqrt})
+print('El R2 del modelo XGBoost para y = sqrt(loss + 1):',{r2_sqrt},'\n')
+El MAE del modelo XGBoost para y = log(loss):  {0.44707909325621376}
+El MSE del modelo XGBoost para y = log(loss):  {0.33215298629465156}
+El R2 del modelo XGBoost para y = log(loss):  {0.49637774439581595} 
+
+El MAE del modelo XGBoost para y = log(loss + 100): {0.4220085328921028}
+El MSE del modelo XGBoost para y = log(loss + 100): {0.29100841094547225}
+El R2 del modelo XGBoost para y = log(loss + 100): {0.5052512693319708} 
+
+El MAE del modelo XGBoost para y = sqrt(loss + 1): {0.7681401613670822}
+El MSE del modelo XGBoost para y = sqrt(loss + 1): {0.9796075045028698}
+El R2 del modelo XGBoost para y = sqrt(loss + 1): {0.5256745941846469} 
+
+
+[ ]
+mae_real_log = mean_absolute_error(np.exp(y_test_log), np.exp(y_log_pred))
+mae_real_log_100 = mean_absolute_error(np.exp(y_test_log_100)-100, np.exp(y_log_100_pred)-100)
+mae_real_sqrt = mean_absolute_error((y_test_sqrt)**4 - 1, (y_sqrt_pred)**4 - 1)
+
+mse_real_log = mean_squared_error(np.exp(y_test_log), np.exp(y_log_pred))
+mse_real_log_100 = mean_squared_error(np.exp(y_test_log_100)-100, np.exp(y_log_100_pred)-100)
+mse_real_sqrt = mean_squared_error((y_test_sqrt)**4 - 1, (y_sqrt_pred)**4 - 1)
+
+r2_real_log = r2_score(np.exp(y_test_log), np.exp(y_log_pred))
+r2_real_log_100 = r2_score(np.exp(y_test_log_100)-100, np.exp(y_log_100_pred)-100)
+r2_real_sqrt = r2_score((y_test_sqrt)**4 - 1, (y_sqrt_pred)**4 - 1)
+
+print('El MAE real del modelo XGBoost para y = log(loss): ',{mae_real_log})
+print('El MSE real del modelo XGBoost para y = log(loss):', {mse_real_log})
+print('El R2 real del modelo XGBoost para y = log(loss): ',{r2_real_log},'\n')
+
+print('El MAE real del modelo XGBoost para y = log(loss + 100):',{mae_real_log_100})
+print('El MSE real del modelo XGBoost para y = log(loss + 100):',{mse_real_log_100})
+print('El R2 real del modelo XGBoost para y = log(loss + 100):',{r2_real_log_100},'\n')
+
+print('El MAE real del modelo XGBoost para y = sqrt(loss + 1):',{mae_real_sqrt})
+print('El MSE real del modelo XGBoost para y = sqrt(loss + 1):',{mse_real_sqrt})
+print('El R2 real del modelo XGBoost para y = sqrt(loss + 1):',{r2_real_sqrt},'\n')
+
+El MAE real del modelo XGBoost para y = log(loss):  {1225.6951210808004}
+El MSE real del modelo XGBoost para y = log(loss): {4105750.7035868354}
+El R2 real del modelo XGBoost para y = log(loss):  {0.5012347415217486} 
+
+El MAE real del modelo XGBoost para y = log(loss + 100): {1224.4195656533163}
+El MSE real del modelo XGBoost para y = log(loss + 100): {4094294.1282893983}
+El R2 real del modelo XGBoost para y = log(loss + 100): {0.502626482558171} 
+
+El MAE real del modelo XGBoost para y = sqrt(loss + 1): {1220.4188930602268}
+El MSE real del modelo XGBoost para y = sqrt(loss + 1): {3949353.473062785}
+El R2 real del modelo XGBoost para y = sqrt(loss + 1): {0.5202338261567374} 
+
+Resultados de metricas en los datos de test (B)
+
+[ ]
+from sklearn.ensemble import RandomForestRegressor
+
+[ ]
+#transformar el loss de test_data_loss
+y_test_data_loss = test_data_loss['loss']
+y_test_test_log = np.log(y_test_data_loss)
+y_test_test_log_100 = np.log(y_test_data_loss+100)
+y_test_test_sqrt = (y_test_data_loss + 1)**.25
+
+[ ]
+X_train_adj.columns
+Index(['cat80', 'cat79', 'cat87', 'cat57', 'cat12', 'cat81', 'cont2', 'cat89',
+       'cont7', 'cont12', 'cat10', 'cat1', 'cat72', 'cont3', 'cat103', 'cat9',
+       'cat13', 'cat111', 'cat114', 'cat53', 'cat11', 'cont6', 'cat38'],
+      dtype='object')
+
+[ ]
+X_test_test = test_data_loss[X_train_adj.columns]
+
+[ ]
+import statsmodels.api as sm
+X_test_test_const = sm.add_constant(X_test_test)
+X_test_test_const['const'] = .7
+
+[ ]
+X_test_test_const.head()
+
+RF 100 metricas para test
+
+[ ]
+model_100n_log_sin_outlier = RandomForestRegressor(n_jobs=-1,n_estimators=100, max_features=12, random_state=seed)
+model_100n_log_sin_outlier.fit(datos_fit_sin_outlier_adj.iloc[:, :-1], np.log(datos_fit_sin_outlier_adj['loss']))
+model_100n_log_100_sin_outlier = RandomForestRegressor(n_jobs=-1,n_estimators=100, max_features=12, random_state=seed)
+model_100n_log_100_sin_outlier.fit(datos_fit_sin_outlier_adj.iloc[:, :-1], np.log(datos_fit_sin_outlier_adj['loss']+100))
+model_100n_sqrt_sin_outlier = RandomForestRegressor(n_jobs=-1,n_estimators=100, max_features=12, random_state=seed)
+model_100n_sqrt_sin_outlier.fit(datos_fit_sin_outlier_adj.iloc[:, :-1], (1+datos_fit_sin_outlier_adj['loss'])**.25)
+
+
+[ ]
+y_pred_test_test_log_sin_outliers = model_100n_log_sin_outlier.predict(X_test_test)
+y_pred_test_test_log_100_sin_outliers = model_100n_log_100_sin_outlier.predict(X_test_test)
+y_pred_test_test_sqrt_sin_outliers = model_100n_sqrt_sin_outlier.predict(X_test_test)
+
+[ ]
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+[ ]
+mae_log_test_test_sin_outliers = mean_absolute_error(y_test_test_log, y_pred_test_test_log_sin_outliers)
+mae_log_100_test_test_sin_outliers = mean_absolute_error(y_test_test_log_100, y_pred_test_test_log_100_sin_outliers)
+mae_sqrt_test_test_sin_outliers = mean_absolute_error(y_test_test_sqrt, y_pred_test_test_sqrt_sin_outliers)
+
+mse_log_test_test_sin_outliers = mean_squared_error(y_test_test_log, y_pred_test_test_log_sin_outliers)
+mse_log_100_test_test_sin_outliers = mean_squared_error(y_test_test_log_100, y_pred_test_test_log_100_sin_outliers)
+mse_sqrt_test_test_sin_outliers = mean_squared_error(y_test_test_sqrt, y_pred_test_test_sqrt_sin_outliers)
+
+r2_log_test_test_sin_outliers = r2_score(y_test_test_log, y_pred_test_test_log_sin_outliers)
+r2_log_100_test_test_sin_outliers = r2_score(y_test_test_log_100, y_pred_test_test_log_100_sin_outliers)
+r2_sqrt_test_test_sin_outliers = r2_score(y_test_test_sqrt, y_pred_test_test_sqrt_sin_outliers)
+
+print('El MAE del modelo RF100 para y = log(loss): ',{mae_log_test_test_sin_outliers})
+print('El MSE del modelo RF100 para y = log(loss): ',{mse_log_test_test_sin_outliers})
+print('El R2 del modelo RF100 para y = log(loss): ',{r2_log_test_test_sin_outliers},'\n')
+
+print('El MAE del modelo RF100 para y = log(loss + 100):',{mae_log_100_test_test_sin_outliers})
+print('El MSE del modelo RF100 para y = log(loss + 100):',{mse_log_100_test_test_sin_outliers})
+print('El R2 del modelo RF100 para y = log(loss + 100):',{r2_log_100_test_test_sin_outliers},'\n')
+
+print('El MAE del modelo RF100 para y = sqrt(loss + 1):',{mae_sqrt_test_test_sin_outliers})
+print('El MSE del modelo RF100 para y = sqrt(loss + 1):',{mse_sqrt_test_test_sin_outliers})
+print('El R2 del modelo RF100 para y = sqrt(loss + 1):',{r2_sqrt_test_test_sin_outliers},'\n')
+El MAE del modelo RF100 para y = log(loss):  {0.48592897985489947}
+El MSE del modelo RF100 para y = log(loss):  {0.38760502696585636}
+El R2 del modelo RF100 para y = log(loss):  {0.4137160351362277} 
+
+El MAE del modelo RF100 para y = log(loss + 100): {0.45827103687647347}
+El MSE del modelo RF100 para y = log(loss + 100): {0.34221287881097845}
+El R2 del modelo RF100 para y = log(loss + 100): {0.4234499002172043} 
+
+El MAE del modelo RF100 para y = sqrt(loss + 1): {0.8283478084173967}
+El MSE del modelo RF100 para y = sqrt(loss + 1): {1.1426619284118618}
+El R2 del modelo RF100 para y = sqrt(loss + 1): {0.4542420552677031} 
+
+MAE real o destransformado
+
+
+[ ]
+mae_real_log = mean_absolute_error(np.exp(y_test_test_log), np.exp(y_pred_test_test_log_sin_outliers))
+mae_real_log_100 = mean_absolute_error(np.exp(y_test_test_log_100)-100, np.exp(y_pred_test_test_log_100_sin_outliers)-100)
+mae_real_sqrt = mean_absolute_error((y_test_test_sqrt)**4 - 1, (y_pred_test_test_sqrt_sin_outliers)**4 - 1)
+
+mse_real_log = mean_squared_error(np.exp(y_test_test_log), np.exp( y_pred_test_test_log_sin_outliers))
+mse_real_log_100 = mean_squared_error(np.exp(y_test_test_log_100)-100, np.exp(y_pred_test_test_log_100_sin_outliers)-100)
+mse_real_sqrt = mean_squared_error((y_test_test_sqrt)**4 - 1, (y_pred_test_test_sqrt_sin_outliers)**4 - 1)
+
+r2_real_log = r2_score(np.exp(y_test_test_log), np.exp(y_pred_test_test_log_sin_outliers))
+r2_real_log_100 = r2_score(np.exp(y_test_test_log_100)-100, np.exp(y_pred_test_test_log_100_sin_outliers)-100)
+r2_real_sqrt = r2_score((y_test_test_sqrt)**4 - 1, (y_pred_test_test_sqrt_sin_outliers)**4 - 1)
+
+print('El MAE real del modelo RF100 para y = log(loss): ',{mae_real_log})
+print('El MSE real del modelo RF100 para y = log(loss):', {mse_real_log})
+print('El R2 real del modelo RF100 para y = log(loss): ',{r2_real_log},'\n')
+
+print('El MAE real del modelo RF100 para y = log(loss + 100):',{mae_real_log_100})
+print('El MSE real del modelo RF100 para y = log(loss + 100):',{mse_real_log_100})
+print('El R2 real del modelo RF100 para y = log(loss + 100):',{r2_real_log_100},'\n')
+
+print('El MAE real del modelo RF100 para y = sqrt(loss + 1):',{mae_real_sqrt})
+print('El MSE real del modelo RF100 para y = sqrt(loss + 1):',{mse_real_sqrt})
+print('El R2 real del modelo RF100 para y = sqrt(loss + 1):',{r2_real_sqrt},'\n')
+El MAE real del modelo RF100 para y = log(loss):  {1318.6886467180982}
+El MSE real del modelo RF100 para y = log(loss): {5635534.031996787}
+El R2 real del modelo RF100 para y = log(loss):  {0.40115408647813966} 
+
+El MAE real del modelo RF100 para y = log(loss + 100): {1318.0081502606206}
+El MSE real del modelo RF100 para y = log(loss + 100): {5619570.251389533}
+El R2 real del modelo RF100 para y = log(loss + 100): {0.4028504376538641} 
+
+El MAE real del modelo RF100 para y = sqrt(loss + 1): {1311.3112251556947}
+El MSE real del modelo RF100 para y = sqrt(loss + 1): {5443455.050565965}
+El R2 real del modelo RF100 para y = sqrt(loss + 1): {0.42156487850782287} 
+
+XGBoost
+
+[ ]
+ypred_test_test_log = model_xgb2_log.predict(X_test_test_const)
+ypred_test_test_log_100 = model_xgb2_log_100.predict(X_test_test_const)
+ypred_test_test_sqrt = model_xgb2_sqrt.predict(X_test_test_const)
+
+[ ]
+from xgboost import XGBRegressor
+
+[ ]
+model_xgb2_log_out = XGBRegressor()
+model_xgb2_log_100_out = XGBRegressor()
+model_xgb2_sqrt_out = XGBRegressor()
+
+[ ]
+model_xgb2_log_out.fit(datos_fit_sin_outlier_adj.iloc[:, :-1], np.log(datos_fit_sin_outlier_adj['loss']))
+model_xgb2_log_100_out.fit(datos_fit_sin_outlier_adj.iloc[:, :-1], np.log(datos_fit_sin_outlier_adj['loss']+100))
+model_xgb2_sqrt_out.fit(datos_fit_sin_outlier_adj.iloc[:, :-1], (1+datos_fit_sin_outlier_adj['loss'])**.25)
+
+
+[ ]
+ypred_test_test_log_out = model_xgb2_log_out.predict(X_test_test)
+ypred_test_test_log_100_out = model_xgb2_log_100_out.predict(X_test_test)
+ypred_test_test_sqrt_out = model_xgb2_sqrt_out.predict(X_test_test)
+
+[ ]
+mae_log_test_test = mean_absolute_error(y_test_test_log, ypred_test_test_log_out)
+mae_log_100_test_test = mean_absolute_error(y_test_test_log_100, ypred_test_test_log_100_out)
+mae_sqrt_test_test = mean_absolute_error(y_test_test_sqrt, ypred_test_test_sqrt_out)
+
+mse_log_test_test = mean_squared_error(y_test_test_log, ypred_test_test_log_out)
+mse_log_100_test_test = mean_squared_error(y_test_test_log_100, ypred_test_test_log_100_out)
+mse_sqrt_test_test = mean_squared_error(y_test_test_sqrt, ypred_test_test_sqrt_out)
+
+r2_log_test_test = r2_score(y_test_test_log, ypred_test_test_log_out)
+r2_log_100_test_test = r2_score(y_test_test_log_100, ypred_test_test_log_100_out)
+r2_sqrt_test_test = r2_score(y_test_test_sqrt, ypred_test_test_sqrt_out)
+
+print('El MAE del modelo XGBoost para y = log(loss): ',{mae_log_test_test})
+print('El MSE del modelo XGBoost para y = log(loss): ',{mse_log_test_test})
+print('El R2 del modelo XGBoost para y = log(loss): ',{r2_log_test_test},'\n')
+
+print('El MAE del modelo XGBoost para y = log(loss + 100):',{mae_log_100_test_test})
+print('El MSE del modelo XGBoost para y = log(loss + 100):',{mse_log_100_test_test})
+print('El R2 del modelo XGBoost para y = log(loss + 100):',{r2_log_100_test_test},'\n')
+
+print('El MAE del modelo XGBoost para y = sqrt(loss + 1):',{mae_sqrt_test_test})
+print('El MSE del modelo XGBoost para y = sqrt(loss + 1):',{mse_sqrt_test_test})
+print('El R2 del modelo XGBoost para y = sqrt(loss + 1):',{r2_sqrt_test_test},'\n')
+El MAE del modelo XGBoost para y = log(loss):  {0.4533071490786833}
+El MSE del modelo XGBoost para y = log(loss):  {0.338346217930323}
+El R2 del modelo XGBoost para y = log(loss):  {0.4882239693905578} 
+
+El MAE del modelo XGBoost para y = log(loss + 100): {0.4307401899454946}
+El MSE del modelo XGBoost para y = log(loss + 100): {0.30295293231504894}
+El R2 del modelo XGBoost para y = log(loss + 100): {0.4895938926594001} 
+
+El MAE del modelo XGBoost para y = sqrt(loss + 1): {0.7808636180400836}
+El MSE del modelo XGBoost para y = sqrt(loss + 1): {1.019781543530089}
+El R2 del modelo XGBoost para y = sqrt(loss + 1): {0.5129321582924866} 
+
+con MAE real
+
+
+[ ]
+mae_real_log = mean_absolute_error(np.exp(y_test_test_log), np.exp(ypred_test_test_log_out))
+mae_real_log_100 = mean_absolute_error(np.exp(y_test_test_log_100)-100, np.exp(ypred_test_test_log_100_out)-100)
+mae_real_sqrt = mean_absolute_error((y_test_test_sqrt)**4 - 1, (ypred_test_test_sqrt_out)**4 - 1)
+
+mse_real_log = mean_squared_error(np.exp(y_test_test_log), np.exp(ypred_test_test_log_out))
+mse_real_log_100 = mean_squared_error(np.exp(y_test_test_log_100)-100, np.exp(ypred_test_test_log_100_out)-100)
+mse_real_sqrt = mean_squared_error((y_test_test_sqrt)**4 - 1, (ypred_test_test_sqrt_out)**4 - 1)
+
+r2_real_log = r2_score(np.exp(y_test_test_log), np.exp(ypred_test_test_log_out))
+r2_real_log_100 = r2_score(np.exp(y_test_test_log_100)-100, np.exp(ypred_test_test_log_100_out)-100)
+r2_real_sqrt = r2_score((y_test_test_sqrt)**4 - 1, (ypred_test_test_sqrt_out)**4 - 1)
+
+print('El MAE real del modelo XGBoost para y = log(loss): ',{mae_real_log})
+print('El MSE real del modelo XGBoost para y = log(loss):', {mse_real_log})
+print('El R2 real del modelo XGBoost para y = log(loss): ',{r2_real_log},'\n')
+
+print('El MAE real del modelo XGBoost para y = log(loss + 100):',{mae_real_log_100})
+print('El MSE real del modelo XGBoost para y = log(loss + 100):',{mse_real_log_100})
+print('El R2 real del modelo XGBoost para y = log(loss + 100):',{r2_real_log_100},'\n')
+
+print('El MAE real del modelo XGBoost para y = sqrt(loss + 1):',{mae_real_sqrt})
+print('El MSE real del modelo XGBoost para y = sqrt(loss + 1):',{mse_real_sqrt})
+print('El R2 real del modelo XGBoost para y = sqrt(loss + 1):',{r2_real_sqrt},'\n')
+El MAE real del modelo XGBoost para y = log(loss):  {1251.2410224742127}
+El MSE real del modelo XGBoost para y = log(loss): {5231603.370747725}
+El R2 real del modelo XGBoost para y = log(loss):  {0.4440767668242782} 
+
+El MAE real del modelo XGBoost para y = log(loss + 100): {1257.730930958037}
+El MSE real del modelo XGBoost para y = log(loss + 100): {5249967.754740128}
+El R2 real del modelo XGBoost para y = log(loss + 100): {0.4421253215405203} 
+
+El MAE real del modelo XGBoost para y = sqrt(loss + 1): {1246.6515328319617}
+El MSE real del modelo XGBoost para y = sqrt(loss + 1): {5079529.557358711}
+El R2 real del modelo XGBoost para y = sqrt(loss + 1): {0.4602365098379193} 
+
+sin los outliers no es significa una gran mejoria, pero existe un poco, principamente porque sabes que en dataB se encuentra el outlier mas grande de nuestros datos
+
+
+[ ]
+mae_log_test_test = mean_absolute_error(y_test_test_log, ypred_test_test_log)
+mae_log_100_test_test = mean_absolute_error(y_test_test_log_100, ypred_test_test_log_100)
+mae_sqrt_test_test = mean_absolute_error(y_test_test_sqrt, ypred_test_test_sqrt)
+
+mse_log_test_test = mean_squared_error(y_test_test_log, ypred_test_test_log)
+mse_log_100_test_test = mean_squared_error(y_test_test_log_100, ypred_test_test_log_100)
+mse_sqrt_test_test = mean_squared_error(y_test_test_sqrt, ypred_test_test_sqrt)
+
+r2_log_test_test = r2_score(y_test_test_log, ypred_test_test_log)
+r2_log_100_test_test = r2_score(y_test_test_log_100, ypred_test_test_log_100)
+r2_sqrt_test_test = r2_score(y_test_test_sqrt, ypred_test_test_sqrt)
+
+print('El MAE del modelo XGBoost para y = log(loss): ',{mae_log_test_test})
+print('El MSE del modelo XGBoost para y = log(loss): ',{mse_log_test_test})
+print('El R2 del modelo XGBoost para y = log(loss): ',{r2_log_test_test},'\n')
+
+print('El MAE del modelo XGBoost para y = log(loss + 100):',{mae_log_100_test_test})
+print('El MSE del modelo XGBoost para y = log(loss + 100):',{mse_log_100_test_test})
+print('El R2 del modelo XGBoost para y = log(loss + 100):',{r2_log_100_test_test},'\n')
+
+print('El MAE del modelo XGBoost para y = sqrt(loss + 1):',{mae_sqrt_test_test})
+print('El MSE del modelo XGBoost para y = sqrt(loss + 1):',{mse_sqrt_test_test})
+print('El R2 del modelo XGBoost para y = sqrt(loss + 1):',{r2_sqrt_test_test},'\n')
+El MAE del modelo XGBoost para y = log(loss):  {0.4575470479369643}
+El MSE del modelo XGBoost para y = log(loss):  {0.3428257266888888}
+El R2 del modelo XGBoost para y = log(loss):  {0.4814483499509129} 
+
+El MAE del modelo XGBoost para y = log(loss + 100): {0.4308621098206256}
+El MSE del modelo XGBoost para y = log(loss + 100): {0.3028579261278413}
+El R2 del modelo XGBoost para y = log(loss + 100): {0.4897539562633908} 
+
+El MAE del modelo XGBoost para y = sqrt(loss + 1): {0.7812223831300468}
+El MSE del modelo XGBoost para y = sqrt(loss + 1): {1.0249365441232359}
+El R2 del modelo XGBoost para y = sqrt(loss + 1): {0.5104700280168066} 
+
+
+[ ]
+mae_real_log = mean_absolute_error(np.exp(y_test_test_log), np.exp(ypred_test_test_log))
+mae_real_log_100 = mean_absolute_error(np.exp(y_test_test_log_100)-100, np.exp(ypred_test_test_log_100)-100)
+mae_real_sqrt = mean_absolute_error((y_test_test_sqrt)**4 - 1, (ypred_test_test_sqrt)**4 - 1)
+
+mse_real_log = mean_squared_error(np.exp(y_test_test_log), np.exp(ypred_test_test_log))
+mse_real_log_100 = mean_squared_error(np.exp(y_test_test_log_100)-100, np.exp(ypred_test_test_log_100)-100)
+mse_real_sqrt = mean_squared_error((y_test_test_sqrt)**4 - 1, (ypred_test_test_sqrt)**4 - 1)
+
+r2_real_log = r2_score(np.exp(y_test_test_log), np.exp(ypred_test_test_log))
+r2_real_log_100 = r2_score(np.exp(y_test_test_log_100)-100, np.exp(ypred_test_test_log_100)-100)
+r2_real_sqrt = r2_score((y_test_test_sqrt)**4 - 1, (ypred_test_test_sqrt)**4 - 1)
+
+print('El MAE real del modelo XGBoost para y = log(loss): ',{mae_real_log})
+print('El MSE real del modelo XGBoost para y = log(loss):', {mse_real_log})
+print('El R2 real del modelo XGBoost para y = log(loss): ',{r2_real_log},'\n')
+
+print('El MAE real del modelo XGBoost para y = log(loss + 100):',{mae_real_log_100})
+print('El MSE real del modelo XGBoost para y = log(loss + 100):',{mse_real_log_100})
+print('El R2 real del modelo XGBoost para y = log(loss + 100):',{r2_real_log_100},'\n')
+
+print('El MAE real del modelo XGBoost para y = sqrt(loss + 1):',{mae_real_sqrt})
+print('El MSE real del modelo XGBoost para y = sqrt(loss + 1):',{mse_real_sqrt})
+print('El R2 real del modelo XGBoost para y = sqrt(loss + 1):',{r2_real_sqrt},'\n')
+El MAE real del modelo XGBoost para y = log(loss):  {1258.7560658313423}
+El MSE real del modelo XGBoost para y = log(loss): {4615623.6894246}
+El R2 real del modelo XGBoost para y = log(loss):  {0.5095323053550516} 
+
+El MAE real del modelo XGBoost para y = log(loss + 100): {1261.1782854848648}
+El MSE real del modelo XGBoost para y = log(loss + 100): {4998123.809446241}
+El R2 real del modelo XGBoost para y = log(loss + 100): {0.46888688781413046} 
+
+El MAE real del modelo XGBoost para y = sqrt(loss + 1): {1252.879218066012}
+El MSE real del modelo XGBoost para y = sqrt(loss + 1): {5009149.418825325}
+El R2 real del modelo XGBoost para y = sqrt(loss + 1): {0.46771527903965315} 
+
+
+[ ]
+import pandas as pd
+
+# Create a new DataFrame from the predictions
+predictions_df = pd.DataFrame({
+    'claim_id': test_data_loss['claim_id'],
+    'predictions': (ypred_test_test_sqrt_out)**4 - 1
+})
+predictions_df.head()
+#Ahora a excel
+predictions_df.to_excel('predictions_df.xlsx', index=False)
+
+[ ]
+#conectar con drive
+from google.colab import drive
+drive.mount('/content/drive')
+Mounted at /content/drive
+
+[ ]
+!jupyter nbconvert --to html "/content/drive/MyDrive/Colab Notebooks/P3_E4.ipynb"
+Productos pagados de Colab - Cancela los contratos aquí
